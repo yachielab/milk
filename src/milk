@@ -1,0 +1,147 @@
+#!/usr/bin/env julia
+
+# using Base.FileSystem
+using ArgParse
+using Logging
+
+include("utils/utils.jl")
+include("utils/cli.jl")
+include("utils/file_handling.jl")
+# include("utils/utils.jl")
+# include("utils/utils.jl")
+
+function parse_arguments()
+    args = ArgParseSettings()
+    @add_arg_table args begin
+        "--input-path","-i" 
+            arg_type = String
+            required = true
+            help = ""
+        "--batch-size","-b"
+            arg_type = Int
+            default = 10
+            help = ""
+        "--sample-size","-n"
+            arg_type = Int
+            default = 1
+            help = ""
+        "--cache-size-limit","-c"
+            arg_type = Int
+            default = 100000
+            help = ""
+        "--partition-size","-p"
+            arg_type = Int
+            default = 10000
+            help = ""
+        "--merge-threshold","-M"
+            arg_type = Int
+            default = 100000
+            help = ""
+        "--metric","-m"
+            arg_type = String
+            default = "euclidean"
+            help = ""
+        "--label","-l"
+            arg_type = String
+            default = nothing
+            help = ""
+        "--percentile","-t"
+            arg_type = Float64
+            default = 1.0
+            help = ""
+        "--threads","-T"
+            arg_type = Int
+            default = 1
+            help = ""
+        "--seed","-r"
+            arg_type = Int
+            default = 21
+            help = ""
+        "--output-dir","-o"
+            arg_type = String
+            default = "."
+            help = ""
+    end
+    return parse_args(args)
+end
+
+function main()
+    args = parse_arguments()
+
+    logger = ConsoleLogger(stdout,Logging.Info)
+    global_logger(logger)
+    log_args(args)
+
+    invariant_args = instantiate_invariant_args(args)
+
+    mkpath(invariant_args["output-dir"])
+
+    if isnothing(args["label"])
+        label = replace(basename(args["input-path"]), ".csv.gz" => "")
+    else
+        label = args["label"]
+    end
+
+    cache_path = nothing
+    previous_groups_path = nothing
+
+    # Initial recursion
+    i = 0
+
+    full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+
+    input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv.gz")
+    symlink(abspath(args["input-path"]),input_path)
+
+    n = get_object_count(input_path)
+
+    @info "Iteration: $i ($n objects)"
+
+    # Pre-emptively set cache for subsequent recursions (no caching for initial iteration)
+    cache_path = attempt_to_cache_file(input_path,n,invariant_args)
+
+    representatives_path,groups_path = process(
+        input_path=input_path,
+        label=full_label,
+        cache_path=nothing,
+        previous_groups_path=previous_groups_path,
+        invariant_args=invariant_args
+    )
+    previous_groups_path = groups_path
+
+    n = get_object_count(representatives_path)
+    if isnothing(cache_path)
+        cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
+    end
+
+    while n > args["sample-size"]
+
+        i += 1
+        full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+        @info "Iteration: $i ($n objects)"
+
+        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv.gz")
+        symlink(representatives_path,input_path)
+
+        representatives_path,groups_path = process(
+            input_path=input_path,
+            label=full_label,
+            cache_path=cache_path,
+            previous_groups_path=previous_groups_path,
+            invariant_args=invariant_args
+        )
+        previous_groups_path = groups_path
+        n = get_object_count(representatives_path)
+        if isnothing(cache_path)
+            cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
+        end
+
+        @info "\t$n objects after recursive iteration."
+    end
+
+    @info "\nCompleted recursive downsampling procedure."
+    @info "\tDone!"
+
+end
+
+main()
