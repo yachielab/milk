@@ -3,13 +3,22 @@ using Glob
 
 function load_groups_as_dictionary(path)
     groups = Dict{String,Vector{String}}()
+    thresholds = Vector{Float32}()
+    comparisons = Vector{Float32}()
     open_file_read(path,gzip=true) do file
         for line in eachline(file)
             info = JSON.parse(line)
             groups[info["representative_id"]]  = info["group"]
+            push!(thresholds,info["threshold"])
+            push!(comparisons,info["n_comparisons"])
         end
     end
-    return groups
+    groups_dict = Dict(
+        "groups" => groups,
+        "thresholds" => thresholds,
+        "comparisons" => comparisons
+    )
+    return groups_dict
 end
 
 function write_group_results(;path,n_groups,groups,optimization_set,unmapped_set,distances_dict,specificity_dict,threshold,n_comparisons)
@@ -200,40 +209,29 @@ function open_file_read(f::Function, path; gzip=true)
     end
 end
 
-function concatenate_files(paths,concatenated_path,; gzip = false)
+function concatenate_files(paths,concatenated_path; gzip=false)
+    x = 0
     open_file_write(concatenated_path,gzip=gzip) do outstream
         for path in paths
             open_file_read(path,gzip=gzip) do instream
                 for line in eachline(instream)
                     println(outstream,line)
+                    x += 1
                 end
             end
         end
     end
-    return
+    return x
 end
 
-function concatenate_partitioned_results(label,partition_dir,output_dir)
-    # n_groups_paths        = glob("$(label).partition_*.n_groups.txt",partition_dir)
-    # thresholds_paths      = glob("$(label).partition_*.thresholds.txt",partition_dir)
-    # n_comparisons_paths   = glob("$(label).partition_*.n_comparisons.txt",partition_dir)
-    representatives_paths = glob("$(label).partition_*.representatives.csv.gz",partition_dir)
-    groups_paths          = glob("$(label).partition_*.groups.jsonl.gz",partition_dir)
-
-    # n_groups_path         = joinpath(output_dir,"$(label).n_groups.txt")
-    # thresholds_path       = joinpath(output_dir,"$(label).thresholds.txt")
-    # n_comparisons_path    = joinpath(output_dir,"$(label).n_comparisons.txt")
-    representatives_path  = joinpath(output_dir,"$(label).representatives.csv.gz")
-    groups_path           = joinpath(output_dir,"$(label).groups.jsonl.gz")
-
-    # concatenate_files(n_groups_paths,n_groups_path,gzip=false)
-    # concatenate_files(thresholds_paths,thresholds_path,gzip=false)
-    # concatenate_files(n_comparisons_paths,n_comparisons_path,gzip=false)
-    concatenate_files(representatives_paths,representatives_path,gzip=true)
-    concatenate_files(groups_paths,groups_path,gzip=true)
-
-    # return (n_groups_path,thresholds_path,n_comparisons_path,representatives_path,groups_path)
-    return representatives_path,groups_path
+function concatenate_partitioned_results(label,partition_dir)
+    representatives_pathlist = glob("$(label).partition_*.representatives.csv.gz",partition_dir)
+    groups_pathlist = glob("$(label).partition_*.groups.jsonl.gz",partition_dir)
+    concat_representatives_path = joinpath(partition_dir,"$(label).concat.representatives.csv.gz")
+    concat_groups_path = joinpath(partition_dir,"$(label).concat.groups.jsonl.gz")
+    concatenate_files(representatives_pathlist,concat_representatives_path,gzip=true)
+    x = concatenate_files(groups_pathlist,concat_groups_path,gzip=true)
+    return concat_representatives_path,concat_groups_path,x
 end
 
 function delete_work_directory(dir)

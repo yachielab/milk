@@ -8,10 +8,10 @@ using Logging
 
 include("file_handling.jl")
 
-function stratification_precomputed(data_dict,D,index_map,threshold)
+function group_stratification_precomputed_distances(;ids,vecs,D,index_map,threshold)
     representative_dict = Dict{String,Vector{Float32}}()
     groups = Dict{String,Vector{String}}()
-    for (candidate_id,candidate_vec) in data_dict
+    for (candidate_id,candidate_vec) in zip(ids,vecs)
         i = index_map[candidate_id]
         closest_id   = nothing
         closest_dist = Inf
@@ -30,16 +30,17 @@ function stratification_precomputed(data_dict,D,index_map,threshold)
             push!(groups[closest_id],candidate_id)
         end
     end
+    # @info "\tgroup_stratification_precomputed: $(length(groups))..."
     return representative_dict,groups
 end
 
-function stratification_predefined_medoids_precomputed(;data_dict,representative_dict,D,index_map,threshold,distance_function)
+function group_stratification_predefined_medoids(;representative_dict,ids,vecs,D,index_map,cache_dict,threshold,distance_function)
     groups = Dict{String,Vector{String}}()
     unmapped_dict = Dict{String,Vector{Float32}}()
     distances_dict = Dict{String,Float32}()
     specificity_dict = Dict{String,Int32}()
-    x = 0
-    for (candidate_id,candidate_vec) in data_dict
+    n_comparisons = 0
+    for (candidate_id,candidate_vec) in zip(ids,vecs)
         if haskey(representative_dict,candidate_id) continue end
         i = index_map[candidate_id]
         closest_id = nothing
@@ -50,9 +51,12 @@ function stratification_predefined_medoids_precomputed(;data_dict,representative
             if haskey(index_map,representative_id)
                 j = index_map[representative_id]
                 @inbounds dist = D[i,j]
-            else
+            elseif !isnothing(cache_dict) && (haskey(cache_dict,representative_id))
                 dist = distance_function(candidate_vec,representative_vec)
-                x += 1
+                n_comparisons += 1
+            else
+                # should never hit this
+                error("Representative id ($representative_id) found in neither the index_map nor cache_dict...")
             end
             if dist <= threshold
                 specificity += 1
@@ -70,7 +74,7 @@ function stratification_predefined_medoids_precomputed(;data_dict,representative
             specificity_dict[candidate_id] = specificity
         end
     end
-    return groups,unmapped_dict,distances_dict,specificity_dict,x
+    return groups,unmapped_dict,distances_dict,specificity_dict,n_comparisons
 end
 
 function compute_centroid(medoid_dict)
@@ -78,24 +82,78 @@ function compute_centroid(medoid_dict)
     return vec(mean(arr,dims=2))
 end
 
-function optimize_representatives(data_dict,groups,optimization_set,cache_dict,distance_function)
-    optimized_dict= Dict{String,Vector{Float32}}()
-    x = 0
-    for (representative_id,group) in groups
-        if representative_id in optimization_set
-            medoid_dict = get_medoid_dictionary(group,data_dict,cache_dict)
-            centroid_vec = compute_centroid(medoid_dict)
-            medoid_id,medoid_vec,n_centroid_comps = determine_medoid(medoid_dict,centroid_vec,distance_function)
-            x += n_centroid_comps
-            optimized_dict[medoid_id] = medoid_vec
-        else
-            optimized_dict[representative_id] = data_dict[representative_id]
-        end
+function optimization_process(;ids,vecs,D,index_map,groups,optimization_set,cache_dict,threshold,distance_function)
+    n_comps = 0
+    optimized_dict,n_comps_ = representative_optimization(
+        ids=ids,
+        vecs=vecs,
+        index_map=index_map,
+        groups=groups,
+        optimization_set=optimization_set,
+        cache_dict=cache_dict,
+        distance_function=distance_function
+    )
+    n_comps += n_comps_
+
+    optimized_groups,unmapped_dict,distances_dict,specificity_dict,n_comps_ = group_stratification_predefined_medoids(
+        representative_dict=optimized_dict,
+        ids=ids,
+        vecs=vecs,
+        D=D,
+        index_map=index_map,
+        cache_dict=cache_dict,
+        threshold=threshold,
+        distance_function=distance_function
+    )
+    n_comps += n_comps_
+
+    shared_keys = intersect(keys(optimized_dict),keys(unmapped_dict))
+    if !isempty(shared_keys)
+        error("Overlapping object IDs in (optimized) representative_dict and unmapped_dict!")
     end
-    return optimized_dict,x
+    merge!(optimized_dict,unmapped_dict)
+    for id in keys(unmapped_dict)
+        optimized_groups[id] = [id]
+    end
+
+    unmapped_set = Set(keys(unmapped_dict))
+
+    return optimized_dict,optimized_groups,unmapped_set,distances_dict,specificity_dict,n_comps
 end
 
-function get_medoid_dictionary(group,representative_dict,cache_dict)
+function representative_optimization(;ids,vecs,index_map,groups,optimization_set,cache_dict,distance_function)
+    optimized_dict= Dict{String,Vector{Float32}}()
+    n_comps = 0
+    for (representative_id,group) in groups
+        if representative_id in optimization_set
+            if (length(group) == 1) # should never encounter if optimization_set is set properly -- remove after test
+                error("Unexpected state: group ($representative_id) has a size of 1 -- unable to optimize!")
+            end
+            medoid_dict  = get_medoid_dictionary_from_vectors(group,ids,vecs,index_map,cache_dict)
+            centroid_vec = compute_centroid(medoid_dict)
+            medoid_id,medoid_vec,n_centroid_comps = determine_medoid(medoid_dict,centroid_vec,distance_function)
+            n_comps += n_centroid_comps
+            optimized_dict[medoid_id] = medoid_vec
+        else
+            optimized_dict[representative_id] = vecs[index_map[representative_id]]
+        end
+    end
+    return optimized_dict,n_comps
+end
+
+function get_medoid_dictionary_from_vectors(group,ids,vecs,index_map,cache_dict)
+    medoid_dict = Dict{String,Vector{Float32}}() # this is for a single group
+    for sample_id in group
+        if haskey(index_map,sample_id)
+            medoid_dict[sample_id] = vecs[index_map[sample_id]]
+        elseif !isnothing(cache_dict) && haskey(cache_dict,sample_id)
+            medoid_dict[sample_id] = cache_dict[sample_id]
+        end
+    end
+    return medoid_dict
+end
+
+function get_medoid_dictionary_from_representatives(group,representative_dict,cache_dict)
     medoid_dict = Dict{String,Vector{Float32}}() # this is for a single group
     for sample_id in group
         if haskey(representative_dict,sample_id)
@@ -128,7 +186,7 @@ function optimize_compiled_representatives(representative_dict,groups,cache_dict
     optimization_set = Set(optimization_list)
     optimized_dict   = Dict{String,Vector{Float32}}()
     optimized_groups = Dict{String,Vector{String}}()
-    x = 0
+    n = 0
     for (representative_id,group) in groups
         if representative_id in optimization_set
             medoid_dict = get_medoid_dict(group,representative_dict,cache_dict)
@@ -136,13 +194,13 @@ function optimize_compiled_representatives(representative_dict,groups,cache_dict
             medoid_id,medoid_vec,m = determine_medoid(medoid_dict,centroid_vec,metric)
             optimized_dict[medoid_id] = medoid_vec
             optimized_groups[medoid_id] = group
-            x += m
+            n += m
         else
             optimized_dict[representative_id] = representative_dict[representative_id]
             optimized_groups[representative_id] = group
         end
     end
-    return optimized_dict,optimized_groups,x
+    return optimized_dict,optimized_groups,n
 end
 
 function merge_groups(merged_groups,concat_groups)
@@ -183,33 +241,51 @@ function compile_previous_groupings(groups,previous_groups)
     return compiled_groups,optimization_set
 end
 
-function attempt_to_merge_partitioned_results(;concat_representatives_path,concat_groups_path,m,label,cache_path,invariant_args)
+function merge_partitioned_results(concat_files,label,cache_path,previous_groups_path,invariant_args)
+    concat_n_groups_path        = concat_files[1]
+    concat_thresholds_path      = concat_files[2]
+    concat_n_comparisons_path   = concat_files[3]
+    concat_representatives_path = concat_files[4]
+    concat_groups_paths         = concat_files[5]
+
+    m = sum(load_values_to_list(concat_n_groups_path,"integer"))
+
+    n_groups_path        = joinpath(invariant_args["output-dir"],"$(label).n_groups.txt")
+    thresholds_path      = joinpath(invariant_args["output-dir"],"$(label).thresholds.txt")
+    n_comparisons_path   = joinpath(invariant_args["output-dir"],"$(label).n_comparisons.txt")
     representatives_path = joinpath(invariant_args["output-dir"],"$(label).representatives.csv.gz")
-    groups_path = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
-    if m <= invariant_args["merge-threshold"]
-        @info "\tMerging: number of concatenated groups, $m <= merge threshold ($(invariant_args["merge-threshold"]))"
-        command = [
+    groups_path          = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
+    if m <= MERGE_THRESHOLD
+        command_list = [
             "julia",
-            joinpath(dirname(@__DIR__),"representative_stratification_merge.jl"),
+            "merge_partitioned_results.jl",
             "-i", concat_representatives_path,
-            "-g", concat_groups_path,
+            "-g", concat_groups_paths,
+            "-t", concat_thresholds_path,
+            "-n", concat_n_comparisons_path,
             "-l", label,
+            "-c", cache_path,
             "-m", invariant_args["metric"],
+            "-r", invariant_args["seed"],
             "-o", invariant_args["output-dir"]
         ]
-        if !isnothing(cache_path)
-            push!(command,"-c",cache_path)
+        if !isnothing(previous_groups_path)
+            push!(command_list,"-G")
+            push!(command_list,previous_groups_path)
         end
-        command = Cmd(command)
+        command = Cmd(command_list)
         run(command)
     else
-        symlink(concat_representatives_path,representatives_path)
-        symlink(concat_groups_path,groups_path)
+        mv(concat_n_groups_path,n_groups_path)
+        mv(concat_thresholds_path,thresholds_path)
+        mv(concat_n_comparisons_path,n_comparisons_path)
+        mv(concat_representatives_path,representatives_path)
+        mv(concat_groups_path,groups_path)
     end
-    return representatives_path,groups_path
+    return (n_groups_path,thresholds_path,n_comparisons_path,representatives_path,groups_path)
 end
 
-function stratify_partitioned_inputs(;batches,files,label,cache_path,partition_dir,invariant_args)
+function stratify_partitioned_inputs(;batches,files,label,cache_path,previous_groups_path,partition_dir,invariant_args)
     b = length(batches)
     if b == 1
         # @info "\tSingle batch detected: direct execution..."
@@ -218,13 +294,16 @@ function stratify_partitioned_inputs(;batches,files,label,cache_path,partition_d
             command = [
                 "julia",
                 "--threads", string(invariant_args["threads"]),
-                joinpath(dirname(@__DIR__), "threshold_based_group_stratification.jl"),
+                "threshold_based_group_stratification.jl",
                 "-i", partitioned_input_path,
                 "-t", string(invariant_args["percentile"]),
                 "-l", partition_label,
                 "-m", invariant_args["metric"],
                 "-o", partition_dir
             ]
+            if !isnothing(previous_groups_path)
+                push!(command,"-p",previous_groups_path)
+            end
             if !isnothing(cache_path)
                 push!(command,"-c",cache_path)
             end
@@ -247,42 +326,3 @@ function stratify_partitioned_inputs(;batches,files,label,cache_path,partition_d
     return
 end
 
-function attempt_to_cache_file(path,n,invariant_args)
-    if n <= invariant_args["cache-size-limit"]
-        @info "\tCaching $n objects from the following path: $path" 
-        return path
-    else
-        return nothing
-    end
-end
-
-function process(;input_path,label,cache_path,previous_groups_path,invariant_args)
-
-    # @info "\tPartitioning input file..."
-    partition_dir,files,batches = partition_and_batch_input_files(input_path,label,invariant_args)
-    @info "\tInput file partitioned into $(length(files)) files ($(length(batches)) batches)"
-
-    # @info "\tstratifying partitioned input files..."
-    stratify_partitioned_inputs(
-        batches=batches,
-        files=files,
-        cache_path=cache_path,
-        label=label,
-        partition_dir=partition_dir,
-        invariant_args=invariant_args
-    )
-
-    concat_representatives_path,concat_groups_path,m = concatenate_partitioned_results(label,partition_dir)
-    @info "\t$m after concatenation across partitioned results."
-
-    representatives_path,groups_path = attempt_to_merge_partitioned_results(
-        concat_representatives_path=concat_representatives_path,
-        concat_groups_path=concat_groups_path,
-        m=m,
-        label=label,
-        cache_path=cache_path,
-        invariant_args=invariant_args
-    )
-    # delete_work_directory(partition_dir)
-    return representatives_path,groups_path
-end

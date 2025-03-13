@@ -6,6 +6,7 @@ using Logging
 include("utils/utils.jl")
 include("utils/file_handling.jl")
 include("utils/pairwise_comparisons.jl")
+include("utils/merge_helpers.jl")
 
 function parse_arguments()
     args = ArgParseSettings()
@@ -14,14 +15,14 @@ function parse_arguments()
             arg_type = String
             required = true
             help = ""
+        "--groups-path","-g"
+            arg_type = String
+            default = nothing
+            help = ""
         "--cache-path","-c"
             arg_type = String
             default = nothing
             help = ""
-        "--percentile","-t"
-            required = true
-            default = 1.0
-            arg_type = Float64
         "--label","-l"
             arg_type = String
             default = nothing
@@ -41,23 +42,14 @@ end
 function main()
     args = parse_arguments()
 
-    n_comparisons = 0
-    threads = Threads.nthreads()
+    label = args["label"]
     distance_function = map_distance_function(args["metric"])
 
-    if isnothing(args["label"])
-        label = replace(basename(args["input-path"]),".csv.gz" => "")
-    else
-        label = args["label"]
-    end
-
-    data_dict = load_input_array_as_dictionary(args["input-path"])
-    n = length(data_dict)
-
-    D,index_map,threshold,x = pairwise_distances(data_dict,threads,args["percentile"],distance_function)
-    n_comparisons += x
-    representative_dict,groups = stratification_precomputed(data_dict,D,index_map,threshold)
-    optimization_set = Set(id for (id,group) in groups if length(group) > 1)
+    concat_representatives_dict = load_input_array_as_dictionary(args["input-path"])
+    concat_groups_dict = load_groups_as_dictionary(args["groups-path"])
+    concat_groups = concat_groups_dict["groups"]
+    n_comparisons = sum(concat_groups_dict["comparisons"])
+    threshold = maximum(concat_groups_dict["thresholds"])
 
     cache_dict = nothing
     cache_label = "no"
@@ -66,14 +58,14 @@ function main()
         cache_label = "yes"
     end
 
-    optimized_dict,x = optimize_representatives(data_dict,groups,optimization_set,cache_dict,distance_function)
+    merged_representatives,merged_groups,n_comps = stratification(concat_representatives_dict,threshold,distance_function)
+    optimization_set = Set(id for (id,group) in merged_groups if length(group) > 1)
+    optimized_dict,x = optimize_representatives(concat_representatives_dict,merged_groups,optimization_set,cache_dict,distance_function)
     n_comparisons += x
 
-    optimized_groups,unmapped_dict,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed(
-        data_dict=data_dict,
+    optimized_groups,unmapped_dict,distances_dict,specificity_dict,x = stratification_predefined_medoids(
+        data_dict=concat_representatives_dict,
         representative_dict=optimized_dict,
-        D=D,
-        index_map=index_map,
         threshold=threshold,
         distance_function=distance_function
     )
@@ -88,15 +80,16 @@ function main()
         optimized_groups[id] = [id]
     end
 
+    n = length(concat_representatives_dict)
     G = length(optimized_dict)
     g = length(optimization_set)
     u = length(unmapped_set)
     t = round(threshold,digits=4)
     N = sum(length(group) for group in values(optimized_groups))
-    @info "\t[$label] $n objects ($N total); threshold: $t; $G groups ($g groups optimized; $u unmapped); $n_comparisons comparisons ($threads thread(s); cache: $cache_label)"
+    @info "\t[MERGE: $label] $n objects ($N total); threshold: $t; $G groups ($g groups optimized; $u unmapped); $n_comparisons comparisons (cache: $cache_label)"
 
-    representatives_path = joinpath(args["output-dir"],"$(args["label"]).representatives.csv.gz")
-    groups_path = joinpath(args["output-dir"],"$(args["label"]).groups.jsonl.gz")
+    representatives_path = joinpath(args["output-dir"],"$label.representatives.csv.gz")
+    groups_path = joinpath(args["output-dir"],"$label.jsonl.gz")
     write_dictionary_as_csv(optimized_dict,representatives_path)
     write_group_results(
         path=groups_path,
@@ -109,6 +102,7 @@ function main()
         threshold=threshold,
         n_comparisons=n_comparisons
     )
+
 end
 
 main()
