@@ -21,21 +21,26 @@ function load_groups_as_dictionary(path)
     return groups_dict
 end
 
-function write_group_results(;path,n_groups,groups,optimization_set,unmapped_set,distances_dict,specificity_dict,threshold,n_comparisons)
+function write_group_results(;path,label,stage,cache_label,compiled_label,n_input_objects,n_groups,groups,optimization_set,direct_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
     """
     """
     open_file_write(path,gzip=true) do file
         for (representative_id,group) in groups
-            group_set = Set(group)
             group_info = Dict(
+                "label" => label,
+                "stage" => stage,
+                "cache" => cache_label,
+                "compiled" => compiled_label,
                 "representative_id" => representative_id,
-                "threshold" => threshold,
-                "group_size" => length(group),
                 "group" => group,
-                "distances" => Dict(id => d for (id,d) in distances_dict if id in group_set),
-                "specificity" => Dict(id => x for (id,x) in specificity_dict if id in group_set),
+                "direct_group_size" => direct_groupsize_dict[representative_id],
+                "compiled_group_size" => length(group),
+                "distances" => distances_dict[representative_id],
+                "specificity" => specificity_dict[representative_id],
                 "optimized" => (representative_id in optimization_set),
-                "mapped" => !(representative_id in unmapped_set),
+                "threshold" => threshold,
+                "n_input_objects" => n_input_objects,
+                "n_groups" => n_groups,
                 "n_comparisons" => n_comparisons
             )
             JSON.print(file,group_info)
@@ -224,11 +229,11 @@ function concatenate_files(paths,concatenated_path; gzip=false)
     return x
 end
 
-function concatenate_partitioned_results(label,partition_dir)
-    representatives_pathlist = glob("$(label).partition_*.representatives.csv.gz",partition_dir)
-    groups_pathlist = glob("$(label).partition_*.groups.jsonl.gz",partition_dir)
-    concat_representatives_path = joinpath(partition_dir,"$(label).concat.representatives.csv.gz")
-    concat_groups_path = joinpath(partition_dir,"$(label).concat.groups.jsonl.gz")
+function concatenate_partitioned_results(label,partition_dir,invariant_args)
+    representatives_pathlist = glob("*.representatives.csv.gz",partition_dir)
+    groups_pathlist = glob("*.groups.jsonl.gz",partition_dir)
+    concat_representatives_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.representatives.csv.gz")
+    concat_groups_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.groups.jsonl.gz")
     concatenate_files(representatives_pathlist,concat_representatives_path,gzip=true)
     x = concatenate_files(groups_pathlist,concat_groups_path,gzip=true)
     return concat_representatives_path,concat_groups_path,x

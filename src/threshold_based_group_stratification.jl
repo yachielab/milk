@@ -18,6 +18,10 @@ function parse_arguments()
             arg_type = String
             default = nothing
             help = ""
+        "--previous-groups-path","-G"
+            arg_type = String
+            default = nothing
+            help = ""
         "--percentile","-t"
             required = true
             default = 1.0
@@ -57,7 +61,6 @@ function main()
     D,index_map,threshold,x = pairwise_distances(data_dict,threads,args["percentile"],distance_function)
     n_comparisons += x
     representative_dict,groups = stratification_precomputed(data_dict,D,index_map,threshold)
-    optimization_set = Set(id for (id,group) in groups if length(group) > 1)
 
     cache_dict = nothing
     cache_label = "no"
@@ -66,44 +69,54 @@ function main()
         cache_label = "yes"
     end
 
-    optimized_dict,x = optimize_representatives(data_dict,groups,optimization_set,cache_dict,distance_function)
+    previous_groups_label = "no"
+    if !isnothing(args["previous-groups-path"]) && isfile(args["previous-groups-path"])
+        previous_groups_dict = load_groups_as_dictionary(args["previous-groups-path"])
+        previous_groups = previous_groups_dict["groups"]
+        groups = compile_previous_groupings(groups,previous_groups)
+        previous_groups_label = "yes"
+    end
+
+    optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
     n_comparisons += x
 
-    optimized_groups,unmapped_dict,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed(
+    optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed(
         data_dict=data_dict,
         representative_dict=optimized_dict,
         D=D,
         index_map=index_map,
+        cache_dict=cache_dict,
         threshold=threshold,
         distance_function=distance_function
     )
-    n_comparisons += x
 
-    if !isempty(intersect(keys(optimized_dict),keys(unmapped_dict)))
-        error("Overlapping object IDs in (optimized) representative_dict and unmapped_dict!")
+    direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
+    if previous_groups_label == "yes"
+        optimized_groups = compile_previous_groupings(optimized_groups,previous_groups)
     end
-    unmapped_set = Set(keys(unmapped_dict))
-    merge!(optimized_dict,unmapped_dict)
-    for id in keys(unmapped_dict)
-        optimized_groups[id] = [id]
-    end
+
+    n_comparisons += x
 
     G = length(optimized_dict)
     g = length(optimization_set)
-    u = length(unmapped_set)
     t = round(threshold,digits=4)
     N = sum(length(group) for group in values(optimized_groups))
-    @info "\t[$label] $n objects ($N total); threshold: $t; $G groups ($g groups optimized; $u unmapped); $n_comparisons comparisons ($threads thread(s); cache: $cache_label)"
+    @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t; $n_comparisons comparisons ($threads thread(s); cache: $cache_label; previous_groups: $previous_groups_label)"
 
     representatives_path = joinpath(args["output-dir"],"$(args["label"]).representatives.csv.gz")
     groups_path = joinpath(args["output-dir"],"$(args["label"]).groups.jsonl.gz")
     write_dictionary_as_csv(optimized_dict,representatives_path)
     write_group_results(
         path=groups_path,
+        label=label,
+        stage="threshold_based_group_stratification",
+        cache_label=cache_label,
+        compiled_label=previous_groups_label,
+        n_input_objects=N,
         n_groups=G,
         groups=optimized_groups,
         optimization_set=optimization_set,
-        unmapped_set=unmapped_set,
+        direct_groupsize_dict=direct_groupsize_dict,
         distances_dict=distances_dict,
         specificity_dict=specificity_dict,
         threshold=threshold,

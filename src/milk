@@ -104,7 +104,7 @@ function main()
         input_path=input_path,
         label=full_label,
         cache_path=nothing,
-        previous_groups_path=previous_groups_path,
+        previous_groups_path=nothing,
         invariant_args=invariant_args
     )
     previous_groups_path = groups_path
@@ -135,7 +135,6 @@ function main()
         if isnothing(cache_path)
             cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
         end
-
         @info "\t$n objects after recursive iteration."
     end
 

@@ -35,8 +35,7 @@ function group_stratification_precomputed_distances(;ids,vecs,D,index_map,thresh
 end
 
 function group_stratification_predefined_medoids(;representative_dict,ids,vecs,D,index_map,cache_dict,threshold,distance_function)
-    groups = Dict{String,Vector{String}}()
-    unmapped_dict = Dict{String,Vector{Float32}}()
+    groups = Dict( id => [id] for id in keys(representative_dict) )
     distances_dict = Dict{String,Float32}()
     specificity_dict = Dict{String,Int32}()
     n_comparisons = 0
@@ -47,7 +46,6 @@ function group_stratification_predefined_medoids(;representative_dict,ids,vecs,D
         closest_dist = Inf
         specificity = 0
         for (representative_id,representative_vec) in representative_dict
-            get!(groups,representative_id,[representative_id])
             if haskey(index_map,representative_id)
                 j = index_map[representative_id]
                 @inbounds dist = D[i,j]
@@ -58,67 +56,22 @@ function group_stratification_predefined_medoids(;representative_dict,ids,vecs,D
                 # should never hit this
                 error("Representative id ($representative_id) found in neither the index_map nor cache_dict...")
             end
-            if dist <= threshold
-                specificity += 1
-                if dist < closest_dist
-                    closest_id = representative_id
-                    closest_dist = dist
-                end
+            specificity += Int(dist <= threshold)
+            if dist < closest_dist
+                closest_id = representative_id
+                closest_dist = dist
             end
         end
-        if isnothing(closest_id)
-            unmapped_dict[candidate_id] = candidate_vec
-        else
-            push!(groups[closest_id],candidate_id)
-            distances_dict[candidate_id] = closest_dist
-            specificity_dict[candidate_id] = specificity
-        end
+        push!(groups[closest_id],candidate_id)
+        distances_dict[candidate_id] = closest_dist
+        specificity_dict[candidate_id] = specificity
     end
-    return groups,unmapped_dict,distances_dict,specificity_dict,n_comparisons
+    return groups,distances_dict,specificity_dict,n_comparisons
 end
 
 function compute_centroid(medoid_dict)
     arr = reduce(hcat,values(medoid_dict))
     return vec(mean(arr,dims=2))
-end
-
-function optimization_process(;ids,vecs,D,index_map,groups,optimization_set,cache_dict,threshold,distance_function)
-    n_comps = 0
-    optimized_dict,n_comps_ = representative_optimization(
-        ids=ids,
-        vecs=vecs,
-        index_map=index_map,
-        groups=groups,
-        optimization_set=optimization_set,
-        cache_dict=cache_dict,
-        distance_function=distance_function
-    )
-    n_comps += n_comps_
-
-    optimized_groups,unmapped_dict,distances_dict,specificity_dict,n_comps_ = group_stratification_predefined_medoids(
-        representative_dict=optimized_dict,
-        ids=ids,
-        vecs=vecs,
-        D=D,
-        index_map=index_map,
-        cache_dict=cache_dict,
-        threshold=threshold,
-        distance_function=distance_function
-    )
-    n_comps += n_comps_
-
-    shared_keys = intersect(keys(optimized_dict),keys(unmapped_dict))
-    if !isempty(shared_keys)
-        error("Overlapping object IDs in (optimized) representative_dict and unmapped_dict!")
-    end
-    merge!(optimized_dict,unmapped_dict)
-    for id in keys(unmapped_dict)
-        optimized_groups[id] = [id]
-    end
-
-    unmapped_set = Set(keys(unmapped_dict))
-
-    return optimized_dict,optimized_groups,unmapped_set,distances_dict,specificity_dict,n_comps
 end
 
 function representative_optimization(;ids,vecs,index_map,groups,optimization_set,cache_dict,distance_function)
