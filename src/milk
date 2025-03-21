@@ -139,6 +139,19 @@ function main()
     end
 
     @info "\nCompleted recursive downsampling procedure."
+
+    @info "Reconstructing hierarchical graph..."
+
+    command = [
+        "python",
+        joinpath(@__DIR__,"hierarchical_reconstruction.py"),
+        "-i", args["input-path"],
+        "-l", label,
+        "-o", invariant_args["output-dir"]
+    ]
+    command = Cmd(command)
+    run(command)
+
     @info "\tDone!"
 
 end

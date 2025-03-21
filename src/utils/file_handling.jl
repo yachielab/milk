@@ -1,22 +1,30 @@
 using JSON
 using Glob
+using Statistics
 
 function load_groups_as_dictionary(path)
     groups = Dict{String,Vector{String}}()
+    spread_dict = Dict{String,Any}()
+    specificity_dict = Dict{String,Any}()
+    resolution_dict = Dict{String,Any}()
     thresholds = Vector{Float32}()
-    comparisons = Vector{Float32}()
     open_file_read(path,gzip=true) do file
         for line in eachline(file)
             info = JSON.parse(line)
-            groups[info["representative_id"]]  = info["group"]
+            representative_id = info["representative_id"]
+            groups[representative_id] = info["group"]
+            spread_dict[representative_id] = isempty(info["distances"]) ? nothing : mean(info["distances"]) 
+            specificity_dict[representative_id] = isempty(info["specificity"]) ? nothing : mean(info["specificity"]) 
+            resolution_dict[representative_id] = length(info["distances"])
             push!(thresholds,info["threshold"])
-            push!(comparisons,info["n_comparisons"])
         end
     end
     groups_dict = Dict(
         "groups" => groups,
         "thresholds" => thresholds,
-        "comparisons" => comparisons
+        "spread" => spread_dict,
+        "specificity" => specificity_dict,
+        "resolution" => resolution_dict
     )
     return groups_dict
 end

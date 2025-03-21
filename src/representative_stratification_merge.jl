@@ -53,8 +53,8 @@ function main()
     concat_groups_dict = load_groups_as_dictionary(args["groups-path"])
 
     concat_groups = concat_groups_dict["groups"]
-    n_comparisons = 0 # sum(concat_groups_dict["comparisons"])
-    threshold = maximum(concat_groups_dict["thresholds"])
+    n_comparisons = 0
+    threshold = minimum(concat_groups_dict["thresholds"])
 
     n = sum(length(group) for group in values(concat_groups))
 
