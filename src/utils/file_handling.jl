@@ -171,8 +171,8 @@ function batch_partitioned_files(partition_dir,label,invariant_args)
     batches = []
     if length(paths) > invariant_args["batch-size"]
         for (b,batch) in enumerate(Iterators.partition(paths,invariant_args["batch-size"]))
-            batches = get_batch_directory(b)
-            mkpath(batches)
+            batch_dir = get_batch_directory(b)
+            mkpath(batch_dir)
             push!(batches,batch_dir)
             for path in batch
                 updated_path = joinpath(batch_dir,basename(path))

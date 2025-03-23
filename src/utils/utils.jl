@@ -6,6 +6,7 @@ using Base.Iterators
 using Base.Threads
 using Logging
 
+include("hpc.jl")
 include("file_handling.jl")
 
 function map_object_precomputed(i,representative_dict,D,index_map,threshold)
@@ -232,7 +233,7 @@ function stratify_partitioned_inputs(;batches,files,label,cache_path,previous_gr
             command = [
                 "julia",
                 "--threads", string(invariant_args["threads"]),
-                joinpath(dirname(@__DIR__), "threshold_based_group_stratification.jl"),
+                joinpath(dirname(@__DIR__),"threshold_based_group_stratification.jl"),
                 "-i", partitioned_input_path,
                 "-t", string(invariant_args["percentile"]),
                 "-l", partition_label,
@@ -249,16 +250,13 @@ function stratify_partitioned_inputs(;batches,files,label,cache_path,previous_gr
             run(command)
         end
     else
-        println("\tSubmitting $b batches as an array job...")
-        flush(stdout)
+        @info "\tSubmitting $b batches as an array job..."
         submit_stratification_batch_array_jobs(
             batches=batches,
             files=files,
             label=label,
             partition_dir=partition_dir,
-            percentile=invariant_args["percentile"],
-            metric=invariant_args["metric"],
-            threads=invariant_args["threads"]
+            invariant_args=invariant_args
         )
     end
     return

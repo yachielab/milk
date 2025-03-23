@@ -11,6 +11,11 @@ function instantiate_invariant_args(args)
         "metric"           => args["metric"],
         "seed"             => args["seed"],
         "threads"          => args["threads"],
+        "job-scheduler"    => args["job-scheduler"],
+        "job-account"      => args["job-account"],
+        "job-name"         => args["job-name"],
+        "job-memory"       => args["job-memory"],
+        "environment-path" => args["environment-path"],
         "output-dir"       => abspath(args["output-dir"])
     )
     return invariant_args

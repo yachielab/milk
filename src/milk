@@ -57,6 +57,30 @@ function parse_arguments()
             arg_type = Int
             default = 21
             help = ""
+        "--job-scheduler"
+            arg_type = String
+            default = "slurm"
+            help = ""
+        "--job-account"
+            arg_type = String
+            default = nothing
+            help = ""
+        "--job-name"
+            arg_type = String
+            default = "milk"
+            help = ""
+        "--job-memory"
+            arg_type = Int
+            default = 4
+            help = ""
+        "--job-time"
+            arg_type = String
+            default = ""
+            help = "24:00:00"
+        "--environment-path"
+            arg_type = String
+            default = nothing
+            help = ""
         "--output-dir","-o"
             arg_type = String
             default = "."
