@@ -35,6 +35,8 @@ function parse_arguments()
             arg_type = String
             required = true
             help = ""
+        "--verbose","-v"
+            action = :store_true 
         "--output-dir","-o"
             arg_type = String
             required = true
@@ -45,6 +47,8 @@ end
 
 function main()
     args = parse_arguments()
+
+    start_time = time()
 
     label = args["label"]
     distance_function = map_distance_function(args["metric"])
@@ -79,6 +83,7 @@ function main()
     n_comparisons += x
 
     direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
+
     optimized_groups = compile_previous_groupings(optimized_groups,concat_groups)
 
     G = length(optimized_dict)
@@ -86,7 +91,13 @@ function main()
     t = round(threshold,digits=4)
 
     N = sum(length(group) for group in values(optimized_groups))
-    @info "\t[MERGE: $label] $G groups ($g groups optimized); $n objects; threshold: $t; cache: $cache_label"
+
+    end_time = time()
+
+    if args["verbose"]
+        @info "\t[MERGE: $label] $G groups ($g groups optimized); $n objects; threshold: $t; cache: $cache_label; runtime: $(round(end_time-start_time,digits=2)) seconds"
+        flush(stdout)
+    end
 
     representatives_path = joinpath(args["output-dir"],"$label.merged.representatives.csv.gz")
     groups_path = joinpath(args["output-dir"],"$label.merged.groups.jsonl.gz")
@@ -107,7 +118,6 @@ function main()
         threshold=threshold,
         n_comparisons=n_comparisons
     )
-
 end
 
 main()

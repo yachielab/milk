@@ -88,7 +88,8 @@ function submit_stratification_batch_array_jobs(;batches,files,label,partition_d
     else
         throw
     end
-    run(command)
+    # run(command)
+    run(pipeline(command,stdout=devnull,stderr=devnull))
 
     pattern = "$(label).*.groups.jsonl.gz"
     poll_for_job_completion(pattern,partition_dir,n)
@@ -97,6 +98,7 @@ end
 
 function poll_for_job_completion(pattern,partition_dir,n,polling_interval=30)
     @info "\tPolling for $n output files..."
+    flush(stdout)
     start_time = time()
 
     while length(glob(pattern,partition_dir)) < n
@@ -105,5 +107,6 @@ function poll_for_job_completion(pattern,partition_dir,n,polling_interval=30)
     
     elapsed_time = round((time()-start_time)/60,digits=2)
     @info "\t\tFinished polling! (elapsed time: $elapsed_time min)"
+    flush(stdout)
     return
     end

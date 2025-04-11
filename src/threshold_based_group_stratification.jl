@@ -34,6 +34,8 @@ function parse_arguments()
             arg_type = String
             required = true
             help = ""
+        "--verbose","-v"
+            action = :store_true 
         "--output-dir","-o"
             arg_type = String
             required = true
@@ -44,6 +46,8 @@ end
 
 function main()
     args = parse_arguments()
+
+    start_time = time()
 
     n_comparisons = 0
     threads = Threads.nthreads()
@@ -91,6 +95,7 @@ function main()
     )
 
     direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
+
     if previous_groups_label == "yes"
         optimized_groups = compile_previous_groupings(optimized_groups,previous_groups)
     end
@@ -101,7 +106,13 @@ function main()
     g = length(optimization_set)
     t = round(threshold,digits=4)
     N = sum(length(group) for group in values(optimized_groups))
-    @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t; $n_comparisons comparisons ($threads thread(s); cache: $cache_label; previous_groups: $previous_groups_label)"
+
+    end_time = time()
+
+    if args["verbose"]
+        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t; $n_comparisons comparisons ($threads thread(s); cache: $cache_label; previous_groups: $previous_groups_label); runtime: $(round(end_time-start_time,digits=2)) seconds"
+        flush(stdout)
+    end
 
     representatives_path = joinpath(args["output-dir"],"$(args["label"]).representatives.csv.gz")
     groups_path = joinpath(args["output-dir"],"$(args["label"]).groups.jsonl.gz")

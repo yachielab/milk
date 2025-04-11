@@ -86,7 +86,7 @@ def hierarchical_reconstruction():
 
         label = f"{clade.name}|{clade.iteration+1}"
         if label not in id_map:
-            id_map[label] = len(id_map)
+            id_map[label] = f"I{len(id_map)}"
 
         metadata_dict["node_id"].append(id_map[label])
         metadata_dict["representative_id"].append(clade.name)
@@ -106,7 +106,7 @@ def hierarchical_reconstruction():
 
             sublabel = f"{subclade.name}|{subclade.iteration+1}"
             if sublabel not in id_map:
-                id_map[sublabel] = len(id_map)
+                id_map[sublabel] = f"I{len(id_map)}"
 
             tree_dict[clade.name].append(id_map[sublabel])
             stack.append(subclade)

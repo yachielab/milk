@@ -204,6 +204,7 @@ function attempt_to_merge_partitioned_results(;concat_representatives_path,conca
             "-g", concat_groups_path,
             "-l", label,
             "-m", invariant_args["metric"],
+            "--verbose",
             "-o", invariant_args["output-dir"]
         ]
         if !isnothing(cache_path)
@@ -216,7 +217,6 @@ function attempt_to_merge_partitioned_results(;concat_representatives_path,conca
         merged_groups_path = joinpath(invariant_args["output-dir"],"$(label).merged.groups.jsonl.gz")
         symlink(merged_representatives_path,representatives_path)
         symlink(merged_groups_path,groups_path)
-
     else
         mv(concat_representatives_path,representatives_path)
         mv(concat_groups_path,groups_path)
@@ -238,6 +238,7 @@ function stratify_partitioned_inputs(;batches,files,label,cache_path,previous_gr
                 "-t", string(invariant_args["percentile"]),
                 "-l", partition_label,
                 "-m", invariant_args["metric"],
+                "--verbose",
                 "-o", partition_dir
             ]
             if !isnothing(cache_path)
@@ -265,6 +266,7 @@ end
 function attempt_to_cache_file(path,n,invariant_args)
     if n <= invariant_args["cache-size-limit"]
         @info "\tCaching $n objects from the following path: $path" 
+        flush(stdout)
         return path
     else
         return nothing
@@ -276,6 +278,7 @@ function process(;input_path,label,cache_path,previous_groups_path,invariant_arg
     # @info "\tPartitioning input file..."
     partition_dir,files,batches = partition_and_batch_input_files(input_path,label,invariant_args)
     @info "\tInput file partitioned into $(length(files)) files ($(length(batches)) batches)"
+    flush(stdout)
 
     # @info "\tstratifying partitioned input files..."
     stratify_partitioned_inputs(
@@ -290,6 +293,7 @@ function process(;input_path,label,cache_path,previous_groups_path,invariant_arg
 
     concat_representatives_path,concat_groups_path,m = concatenate_partitioned_results(label,partition_dir,invariant_args)
     @info "\t$m after concatenation across partitioned results."
+    flush(stdout)
 
     representatives_path,groups_path = attempt_to_merge_partitioned_results(
         concat_representatives_path=concat_representatives_path,

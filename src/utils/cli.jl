@@ -26,6 +26,7 @@ function log_args(args)
     for (key,value) in args
         @info "$(key): $(value)"
     end
+    flush(stdout)
 end
 
 

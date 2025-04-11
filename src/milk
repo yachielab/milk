@@ -94,6 +94,9 @@ function main()
 
     logger = ConsoleLogger(stdout,Logging.Info)
     global_logger(logger)
+    @info "milk"
+    flush(stdout)
+
     log_args(args)
 
     invariant_args = instantiate_invariant_args(args)
@@ -120,6 +123,7 @@ function main()
     n = get_object_count(input_path)
 
     @info "Iteration: $i ($n objects)"
+    flush(stdout)
 
     # Pre-emptively set cache for subsequent recursions (no caching for initial iteration)
     cache_path = attempt_to_cache_file(input_path,n,invariant_args)
@@ -143,6 +147,7 @@ function main()
         i += 1
         full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
         @info "Iteration: $i ($n objects)"
+        flush(stdout)
 
         input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv.gz")
         symlink(representatives_path,input_path)
@@ -160,12 +165,13 @@ function main()
             cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
         end
         @info "\t$n objects after recursive iteration."
+        flush(stdout)
     end
 
     @info "\nCompleted recursive downsampling procedure."
-
+    flush(stdout)
     @info "Reconstructing hierarchical graph..."
-
+    flush(stdout)
     command = [
         "python",
         joinpath(@__DIR__,"hierarchical_reconstruction.py"),
@@ -177,7 +183,7 @@ function main()
     run(command)
 
     @info "\tDone!"
-
+    flush(stdout)
 end
 
 main()
