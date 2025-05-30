@@ -62,6 +62,7 @@ function main()
     data_dict = load_input_array_as_dictionary(args["input-path"])
     n = length(data_dict)
 
+    # TODO: error when there is only one sequence in the partitioned input file
     D,index_map,threshold,x = pairwise_distances(data_dict,threads,args["percentile"],distance_function)
     n_comparisons += x
     representative_dict,groups = stratification_precomputed(data_dict,D,index_map,threshold)

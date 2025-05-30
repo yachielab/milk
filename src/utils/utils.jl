@@ -64,7 +64,7 @@ end
 
 function stratification_predefined_medoids_precomputed(;data_dict,representative_dict,D,index_map,cache_dict,threshold,distance_function)
     groups = Dict( id => [id] for id in keys(representative_dict) )
-    distances_dict = Dict(id => Vector{Float32}() for id in keys(representative_dict))
+    distances_dict = Dict(id => Vector{Float16}() for id in keys(representative_dict))
     specificity_dict = Dict(id => Vector{Int32}() for id in keys(representative_dict))
     for (candidate_id,candidate_vec) in data_dict
         if haskey(representative_dict,candidate_id) continue end
@@ -73,7 +73,7 @@ function stratification_predefined_medoids_precomputed(;data_dict,representative
         if isnothing(closest_id)
             representative_dict[candidate_id] = candidate_vec
             groups[candidate_id] = [candidate_id]
-            distances_dict[candidate_id] = Vector{Float32}()
+            distances_dict[candidate_id] = Vector{Float16}()
             specificity_dict[candidate_id] = Vector{Int32}()
         else
             push!(groups[closest_id],candidate_id)
@@ -212,11 +212,11 @@ function attempt_to_merge_partitioned_results(;concat_representatives_path,conca
         end
         command = Cmd(command)
         run(command)
-
-        merged_representatives_path = joinpath(invariant_args["output-dir"],"$(label).merged.representatives.csv.gz")
-        merged_groups_path = joinpath(invariant_args["output-dir"],"$(label).merged.groups.jsonl.gz")
-        symlink(merged_representatives_path,representatives_path)
-        symlink(merged_groups_path,groups_path)
+        # merged_representatives_path = joinpath(invariant_args["output-dir"],"$(label).merged.representatives.csv.gz")
+        # merged_groups_path = joinpath(invariant_args["output-dir"],"$(label).merged.groups.jsonl.gz")
+        # symlink(merged_representatives_path,representatives_path)
+        # symlink(merged_groups_path,groups_path)
+        # TODO: keep merged and concatenated in work_dir and just mv final groups file into out_dir (no more symlink)
     else
         mv(concat_representatives_path,representatives_path)
         mv(concat_groups_path,groups_path)

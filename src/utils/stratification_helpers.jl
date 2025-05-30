@@ -36,7 +36,7 @@ end
 
 function group_stratification_predefined_medoids(;representative_dict,ids,vecs,D,index_map,cache_dict,threshold,distance_function)
     groups = Dict( id => [id] for id in keys(representative_dict) )
-    distances_dict = Dict{String,Float32}()
+    distances_dict = Dict{String,Float16}()
     specificity_dict = Dict{String,Int32}()
     n_comparisons = 0
     for (candidate_id,candidate_vec) in zip(ids,vecs)

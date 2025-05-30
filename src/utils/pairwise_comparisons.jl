@@ -39,7 +39,7 @@ end
 
 # Helper function
 function pairwise_distance_thread(data_dict,pair_list,distance_function)
-    results = Vector{Tuple{String,String,Float32}}(undef,length(pair_list))
+    results = Vector{Tuple{String,String,Float16}}(undef,length(pair_list))
     for (x,(id_i,id_j)) in enumerate(pair_list)
         results[x] = (id_i,id_j,distance_function(data_dict[id_i],data_dict[id_j]))
     end
@@ -60,8 +60,8 @@ function pairwise_distances(data_dict,threads,perc,distance_function)
     tasks = [@spawn pairwise_distance_thread(data_dict,p,distance_function) for p in partitions]
     results = fetch.(tasks)
 
-    D = zeros(Float32,n,n)
-    distances = Vector{Float32}(undef,L)
+    D = zeros(Float16,n,n)
+    distances = Vector{Float16}(undef,L)
     idx = 1
     for result in results
         for (id_i,id_j,d) in result

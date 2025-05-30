@@ -14,7 +14,7 @@ from argparse import ArgumentParser
 
 def parse_arguments():
     parser = ArgumentParser(description="")
-    parser.add_argument('-i','--input-path',type=str,required=True,help="")
+    # parser.add_argument('-i','--input-path',type=str,required=True,help="")
     parser.add_argument('-l','--label',type=str,required=True,help="")
     parser.add_argument('-o','--out-dir',type=str,required=True,help="")
     return parser.parse_args()
@@ -37,35 +37,79 @@ def instantiate_node_from_group_dictionary(group_dict,iteration):
     clade.resolution = None if (clade.distances is None) else len(group_dict["distances"])
     return clade
 
+def extract_iteration_label(path):
+    iteration = os.path.basename(path).replace(".gz","").replace(".groups.jsonl","")
+    iteration = int(iteration.split(".")[-1].split("_")[-1])
+    return iteration
+
+def open_file_read(path):
+    if path.endswith(".gz"):
+        return gzip.open(path,"rt")
+    else:
+        return open(path,"r")
+
 def hierarchical_reconstruction():
     args = parse_arguments()
 
     clades_dict = {}
-    with gzip.open(args.input_path,"rt") as handle:
-        for line in handle:
-            representative_id = line.strip().split(",")[0]
-            clades_dict[representative_id] = instantiate_leaf_node(representative_id)
-    n = len(clades_dict)
+    ancestor_map = {}
+    # with gzip.open(args.input_path,"rt") as handle:
+    #     for line in handle:
+    #         representative_id = line.strip().split(",")[0]
+    #         clades_dict[representative_id] = instantiate_leaf_node(representative_id)
+    # n = len(clades_dict)
 
-    pathlist = sorted([
-        p for p in glob(os.path.join(args.out_dir,"*.groups.jsonl.gz"))
-        if not (p.endswith(".concatenated.groups.jsonl.gz") or p.endswith(".merged.groups.jsonl.gz"))
-    ])
+    # pathlist = sorted([
+    #     p for p in glob(os.path.join(args.out_dir,"*.groups.jsonl.gz"))
+    #     if not (p.endswith(".concatenated.groups.jsonl.gz") or p.endswith(".merged.groups.jsonl.gz"))
+    # ])
+
+    pathlist = []
+    pattern = os.path.join(args.out_dir,"*.groups.jsonl*")
+    for path in sorted(glob(pattern)):
+        field = os.path.basename(path).replace(".gz","").replace(".groups.jsonl","").split(".")[-1]
+        if (field == "merged" or field == "concatenated"): continue
+        pathlist.append(path)
+
+
+    print("Instantiating clades_dict on initial recursion (iteration 1)",flush=True)
+    groups_path = pathlist[0]
+    iteration = extract_iteration_label(groups_path)
+    n = 0
+    # with gzip.open(groups_path,"rt") as handle:
+    with open_file_read(groups_path) as handle:
+        for line in handle:
+            group_dict = json.loads(line)
+            clade = instantiate_node_from_group_dictionary(group_dict,iteration)
+            for sample_id in group_dict["group"]:
+                clade.clades.append(instantiate_leaf_node(sample_id))
+                ancestor_map[sample_id] = clade.name
+                n += 1
+            clades_dict[clade.name] = clade
+
     print(f"Reconstructing hierarchical groupings ({len(pathlist)} iterations)")
-    for groups_path in pathlist:
-        i = int(os.path.basename(groups_path).replace(".groups.jsonl.gz","").split("_")[-1])
-        # print(f"\tIteration: {i+1}",flush=True)
-        with gzip.open(groups_path,"rt") as handle:
+    for groups_path in pathlist[1:]:
+        iteration = extract_iteration_label(groups_path)
+        print(f"\tIteration: {iteration+1}",flush=True)
+        # with gzip.open(groups_path,"rt") as handle:
+        with open_file_read(groups_path) as handle:
             for line in handle:
                 group_dict = json.loads(line)
-                clade = instantiate_node_from_group_dictionary(group_dict,i)
-                clade.clades = [clades_dict.pop(x) for x in group_dict["group"] if x in clades_dict]
+                ancestors = {ancestor_map[sample_id] for sample_id in group_dict["group"]}
+                clade = instantiate_node_from_group_dictionary(group_dict,iteration)
+                clade.clades = [clades_dict.pop(sample_id) for sample_id in ancestors]
                 clades_dict[clade.name] = clade
 
+                for sample_id in group_dict["group"]:
+                    ancestor_map[sample_id] = clade.name
+                
         assert np.sum([c.count_terminals() for c in clades_dict.values()]) == n
     
     assert len(clades_dict) == 1
     tree = Tree(clades_dict[list(clades_dict)[0]])
+
+    print("Finished hierarchical reconstruction!",flush=True)
+    print("Creating vertices and edges mappings...",flush=True)
 
     tree_dict = defaultdict(list)
     id_map = {}

@@ -99,8 +99,8 @@ function main()
         flush(stdout)
     end
 
-    representatives_path = joinpath(args["output-dir"],"$label.merged.representatives.csv.gz")
-    groups_path = joinpath(args["output-dir"],"$label.merged.groups.jsonl.gz")
+    representatives_path = joinpath(args["output-dir"],"$label.representatives.csv.gz")
+    groups_path = joinpath(args["output-dir"],"$label.groups.jsonl.gz")
     write_dictionary_as_csv(optimized_dict,representatives_path)
     write_group_results(
         path=groups_path,
@@ -118,6 +118,8 @@ function main()
         threshold=threshold,
         n_comparisons=n_comparisons
     )
+    rm(args["input-path"])
+    rm(args["groups-path"])
 end
 
 main()

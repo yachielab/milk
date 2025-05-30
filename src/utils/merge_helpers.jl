@@ -40,7 +40,7 @@ end
 
 function stratification_predefined_medoids(;data_dict,representative_dict,cache_dict,threshold,distance_function)
     groups = Dict( id => [id] for id in keys(representative_dict) )
-    distances_dict = Dict(id => Vector{Float32}() for id in keys(representative_dict))
+    distances_dict = Dict(id => Vector{Float16}() for id in keys(representative_dict))
     specificity_dict = Dict(id => Vector{Int32}() for id in keys(representative_dict))
     x = 0
     for (candidate_id,candidate_vec) in data_dict
@@ -50,7 +50,7 @@ function stratification_predefined_medoids(;data_dict,representative_dict,cache_
         if isnothing(closest_id)
             representative_dict[candidate_id] = candidate_vec
             groups[candidate_id] = [candidate_id]
-            distances_dict[candidate_id] = Vector{Float32}()
+            distances_dict[candidate_id] = Vector{Float16}()
             specificity_dict[candidate_id] = Vector{Int32}()
         else
             push!(groups[closest_id],candidate_id)
@@ -61,7 +61,7 @@ function stratification_predefined_medoids(;data_dict,representative_dict,cache_
     if !isnothing(cache_dict)
         for (cache_id,cache_vec) in cache_dict
             if haskey(data_dict,cache_id) continue end
-            closest_id,closest_dist,n_comps,specificity = map_object(vec,representative_dict,threshold,distance_function)
+            closest_id,closest_dist,n_comps,specificity = map_object(cache_vec,representative_dict,threshold,distance_function)
             x += n_comps
             if !isnothing(closest_id)
                 push!(distances_dict[closest_id],closest_dist)
