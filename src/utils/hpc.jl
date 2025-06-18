@@ -1,7 +1,7 @@
 using Glob
 include("file_handling.jl")
 
-function instantitate_array_job_script(label,b,invariant_args)
+function instantitate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,previous_groups_path,output_dir,invariant_args)
     jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
     stdout_dir = joinpath(jobs_dir,"stdout")
     stderr_dir = joinpath(jobs_dir,"stderr")
@@ -10,24 +10,27 @@ function instantitate_array_job_script(label,b,invariant_args)
     if invariant_args["job-scheduler"] == "sge"
         job_script = """#!/bin/bash
         #\$ -S /bin/bash
+        #\$ -cwd
         #\$ -N $(invariant_args["job-name"])
         #\$ -pe def_slot $(invariant_args["threads"])
         #\$ -l s_vmem=$(invariant_args["job-memory"])G
-        #\$ -t 1:$(b)
+        #\$ -t 1:$(n_batches)
         #\$ -o $(stdout_dir)
         #\$ -e $(stderr_dir)\n
         source $(invariant_args["environment-path"])\n
-        ARRAY_INPUTS_PATH=\$1
-        PERCENTILE=\$2
-        METRIC=\$3
-        THREADS=\$4
-        OUTPUT_DIR=\$5\n
+        ARRAY_INPUTS_PATH=$(array_inputs_path)
+        THRESHOLD=$(threshold)
+        PERCENTILE=$(invariant_args["percentile"])
+        METRIC=$(invariant_args["metric"])
+        CACHE_PATH=$(cache_path)
+        PREVIOUS_GROUPS_PATH=$(previous_groups_path)
+        OUTPUT_DIR=$(output_dir)\n
         BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
         """
     elseif invariant_args["job-scheduler"] == "slurm"
         job_script = """#!/bin/bash
         #SBATCH --account=$(invariant_args["job-account"])
-        #SBATCH --job-name$(invariant_args["job-name"])
+        #SBATCH --job-name=$(invariant_args["job-name"])
         #SBATCH --ntasks=1
         #SBATCH --nodes=1
         #SBATCH --mem=$(invariant_args["job-memory"])GB
@@ -37,28 +40,30 @@ function instantitate_array_job_script(label,b,invariant_args)
         #SBATCH --output=$(stdout_dir)
         #SBATCH --error=$(stderr_dir)\n
         source $(invariant_args["environment-path"])\n
-        ARRAY_INPUTS_PATH=\$1
-        PERCENTILE=\$2
-        METRIC=\$3
-        THREADS=\$4
-        OUTPUT_DIR=\$5\n
-        BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\
+        ARRAY_INPUTS_PATH=$(array_inputs_path)
+        THRESHOLD=$(threshold)
+        PERCENTILE=$(invariant_args["percentile"])
+        METRIC=$(invariant_args["metric"])
+        CACHE_PATH=$(cache_path)
+        PREVIOUS_GROUPS_PATH=$(previous_groups_path)
+        OUTPUT_DIR=$(output_dir)\n
+        BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
         """
     else
         throw
     end
 
     job_script *= """
-    for PARTITIONED_INPUT_PATH in \$BATCH_DIR/*.csv.gz
-    do
-        LABEL=\$(basename -s ".csv.gz" \$PARTITIONED_INPUT_PATH)
-        julia --threads \$THREADS $(dirname(@__DIR__))/threshold_based_group_stratification.jl \\
-        -i \$PARTITIONED_INPUT_PATH \\
-        -t \$PERCENTILE \\
-        -l \$LABEL \\
-        -m \$METRIC \\
-        -o \$OUTPUT_DIR
-    done
+    julia --procs $(invariant_args["threads"]) \
+    $(dirname(@__DIR__))/batch_stratification_distributed.jl \\
+    -i \$BATCH_DIR \\
+    -t \$THRESHOLD \\
+    -p \$PERCENTILE \\
+    -m \$METRIC \\
+    -c \$CACHE_PATH \\
+    -G \$PREVIOUS_GROUPS_PATH \\
+    --verbose \\
+    -o \$OUTPUT_DIR
     """
 
     script_path = joinpath(jobs_dir,"$(label).array_jobs.sh")
@@ -66,25 +71,31 @@ function instantitate_array_job_script(label,b,invariant_args)
     return script_path
 end
 
-function submit_stratification_batch_array_jobs(;batches,files,label,partition_dir,invariant_args)
-    # pass
+function submit_stratification_batch_array_jobs(;batches,files,threshold,cache_path,previous_groups_path,label,partition_dir,invariant_args)
     n = length(files)
-    b = length(batches)
-    array_inputs_path = joinpath(partition_dir,"$(label).batch_pathlist.txt")
+    array_inputs_path = joinpath(partition_dir,"batch_dirlist.txt")
     write_values_as_txt(batches,array_inputs_path)
-    script_path = instantitate_array_job_script(label,b,invariant_args)
-    command = [
-        script_path,
-        array_inputs_path,
-        string(invariant_args["percentile"]),
-        invariant_args["metric"],
-        string(invariant_args["threads"]),
-        partition_dir
-    ]
+    if isnothing(cache_path)
+        cache_path = "nothing"
+    end
+    if isnothing(previous_groups_path)
+        previous_groups_path = "nothing"
+    end
+    script_path = instantitate_array_job_script(
+        label=label,
+        n_batches=length(batches),
+        array_inputs_path=array_inputs_path,
+        threshold=threshold,
+        cache_path=cache_path,
+        previous_groups_path=previous_groups_path,
+        output_dir=partition_dir,
+        invariant_args=invariant_args
+    )
     if invariant_args["job-scheduler"] == "sge"
-        command = Cmd(vcat("qsub",command))
+        command = Cmd(["qsub",script_path])
     elseif invariant_args["job-scheduler"] == "slurm"
-        command = Cmd(vcat("sbatch",command))
+        # command = Cmd(vcat("sbatch",command))
+        command = Cmd(["sbatch",script_path])
     else
         throw
     end

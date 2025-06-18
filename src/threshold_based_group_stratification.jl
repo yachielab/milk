@@ -22,10 +22,14 @@ function parse_arguments()
             arg_type = String
             default = nothing
             help = ""
-        "--percentile","-t"
-            required = true
-            default = 1.0
+        "--threshold","-t"
             arg_type = Float64
+            default = nothing
+            help = ""
+        "--percentile","-p"
+            required = true
+            arg_type = Float64
+            help = "Ignored if `-t` threshold argument is specified."
         "--label","-l"
             arg_type = String
             default = nothing
@@ -51,6 +55,7 @@ function main()
 
     n_comparisons = 0
     threads = Threads.nthreads()
+    threshold = args["threshold"]
     distance_function = map_distance_function(args["metric"])
 
     if isnothing(args["label"])
@@ -64,7 +69,16 @@ function main()
 
     # TODO: error when there is only one sequence in the partitioned input file
     D,index_map,threshold,x = pairwise_distances(data_dict,threads,args["percentile"],distance_function)
+    flush(stdout)
     n_comparisons += x
+
+    if !isnothing(args["threshold"])
+        threshold_label = "predefined"
+        threshold = args["threshold"]
+    else
+        threshold_label = "computed"
+    end
+
     representative_dict,groups = stratification_precomputed(data_dict,D,index_map,threshold)
 
     cache_dict = nothing
@@ -111,7 +125,7 @@ function main()
     end_time = time()
 
     if args["verbose"]
-        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t; $n_comparisons comparisons ($threads thread(s); cache: $cache_label; previous_groups: $previous_groups_label); runtime: $(round(end_time-start_time,digits=2)) seconds"
+        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t ($threshold_label); $n_comparisons comparisons ($threads thread(s); cache: $cache_label; previous_groups: $previous_groups_label); runtime: $(round(end_time-start_time,digits=2)) seconds"
         flush(stdout)
     end
 

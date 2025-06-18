@@ -19,6 +19,9 @@ function parse_arguments()
             arg_type = String
             default = nothing
             help = ""
+        "--threshold","-t"
+            required = true
+            arg_type = Float64
         "--previous-groups-path","-G"
             arg_type = String
             default = nothing
@@ -58,7 +61,8 @@ function main()
 
     concat_groups = concat_groups_dict["groups"]
     n_comparisons = 0
-    threshold = minimum(concat_groups_dict["thresholds"])
+    # threshold = minimum(concat_groups_dict["thresholds"])
+    threshold = args["threshold"]
 
     n = sum(length(group) for group in values(concat_groups))
 
@@ -99,7 +103,7 @@ function main()
         flush(stdout)
     end
 
-    representatives_path = joinpath(args["output-dir"],"$label.representatives.csv.gz")
+    representatives_path = joinpath(args["output-dir"],"$label.representatives.csv")
     groups_path = joinpath(args["output-dir"],"$label.groups.jsonl.gz")
     write_dictionary_as_csv(optimized_dict,representatives_path)
     write_group_results(

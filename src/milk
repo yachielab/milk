@@ -3,12 +3,11 @@
 # using Base.FileSystem
 using ArgParse
 using Logging
+using Distributed
 
 include("utils/utils.jl")
 include("utils/cli.jl")
 include("utils/file_handling.jl")
-# include("utils/utils.jl")
-# include("utils/utils.jl")
 
 function parse_arguments()
     args = ArgParseSettings()
@@ -19,7 +18,7 @@ function parse_arguments()
             help = ""
         "--batch-size","-b"
             arg_type = Int
-            default = 10
+            default = 50
             help = ""
         "--sample-size","-n"
             arg_type = Int
@@ -27,7 +26,7 @@ function parse_arguments()
             help = ""
         "--cache-size-limit","-c"
             arg_type = Int
-            default = 100000
+            default = 50000
             help = ""
         "--partition-size","-p"
             arg_type = Int
@@ -37,6 +36,10 @@ function parse_arguments()
             arg_type = Int
             default = 100000
             help = ""
+        "--compile-previous-threshold","-P"
+            arg_type = Int
+            default = 1000000
+            help = "Only carry forward previous groups if the number of representatives is below this threshold (tractability)."
         "--metric","-m"
             arg_type = String
             default = "euclidean"
@@ -81,6 +84,12 @@ function parse_arguments()
             arg_type = String
             default = nothing
             help = ""
+        "--verbose"
+            action = :store_true
+            help = ""
+        "--skip-reconstruction"
+            action = :store_true
+            help = ""
         "--output-dir","-o"
             arg_type = String
             default = "."
@@ -91,6 +100,14 @@ end
 
 function main()
     args = parse_arguments()
+
+    n_cpus = args["threads"]
+    n_workers = nworkers()
+    if n_workers < n_cpus
+        addprocs(n_cpus-n_workers)
+        @everywhere include("utils/utils.jl")
+        @everywhere include("utils/file_handling.jl")
+    end
 
     logger = ConsoleLogger(stdout,Logging.Info)
     global_logger(logger)
@@ -104,7 +121,7 @@ function main()
     mkpath(invariant_args["output-dir"])
 
     if isnothing(args["label"])
-        label = replace(basename(args["input-path"]), ".csv.gz" => "")
+        label = replace(basename(args["input-path"]),".csv" => "")
     else
         label = args["label"]
     end
@@ -117,7 +134,7 @@ function main()
 
     full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
 
-    input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv.gz")
+    input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
     symlink(abspath(args["input-path"]),input_path)
 
     n = get_object_count(input_path)
@@ -128,60 +145,90 @@ function main()
     # Pre-emptively set cache for subsequent recursions (no caching for initial iteration)
     cache_path = attempt_to_cache_file(input_path,n,invariant_args)
 
-    representatives_path,groups_path = process(
-        input_path=input_path,
-        label=full_label,
-        cache_path=nothing,
-        previous_groups_path=nothing,
-        invariant_args=invariant_args
-    )
-    previous_groups_path = groups_path
-
-    n = get_object_count(representatives_path)
-    if isnothing(cache_path)
-        cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-    end
-
-    while n > args["sample-size"]
-
-        i += 1
-        full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
-        @info "Iteration: $i ($n objects)"
-        flush(stdout)
-
-        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv.gz")
-        symlink(representatives_path,input_path)
-
-        representatives_path,groups_path = process(
-            input_path=input_path,
-            label=full_label,
+    if n <= args["partition-size"]
+        recursive_processing(
+            representatives_path=input_path,
+            iteration=i,
+            label=label,
             cache_path=cache_path,
             previous_groups_path=previous_groups_path,
             invariant_args=invariant_args
         )
-        previous_groups_path = groups_path
+    else
+        representatives_path,groups_path = process(
+            input_path=input_path,
+            label=full_label,
+            cache_path=nothing,
+            previous_groups_path=nothing,
+            invariant_args=invariant_args
+        )
+
         n = get_object_count(representatives_path)
         if isnothing(cache_path)
             cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
         end
-        @info "\t$n objects after recursive iteration."
-        flush(stdout)
+        # previous_groups_path = groups_path
+        if n <= args["compile-previous-threshold"]
+            previous_groups_path = groups_path
+        end
+
+        while n > args["sample-size"]
+            if n <= args["partition-size"]
+                recursive_processing(
+                    representatives_path=representatives_path,
+                    iteration=i,
+                    label=label,
+                    cache_path=cache_path,
+                    previous_groups_path=previous_groups_path,
+                    invariant_args=invariant_args
+                )
+                break
+            end
+
+            i += 1
+            full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+            @info "Iteration: $i ($n objects)"
+            flush(stdout)
+
+            input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
+            symlink(representatives_path,input_path)
+
+            representatives_path,groups_path = process(
+                input_path=input_path,
+                label=full_label,
+                cache_path=cache_path,
+                previous_groups_path=previous_groups_path,
+                invariant_args=invariant_args
+            )
+            # previous_groups_path = groups_path
+            n = get_object_count(representatives_path)
+            if isnothing(cache_path)
+                cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
+            end
+            if n <= args["compile-previous-threshold"]
+                previous_groups_path = groups_path
+            end
+            @info "\t$n objects after recursive iteration."
+            flush(stdout)
+        end
     end
 
     @info "\nCompleted recursive downsampling procedure."
     flush(stdout)
-    @info "Reconstructing hierarchical graph..."
-    flush(stdout)
-    command = [
-        "python",
-        joinpath(@__DIR__,"hierarchical_reconstruction.py"),
-        "-i", args["input-path"],
-        "-l", label,
-        "-o", invariant_args["output-dir"]
-    ]
-    command = Cmd(command)
-    run(command)
 
+    if args["skip-reconstruction"]
+        @info "Skipping cell hierarchy reconstruction."
+    else
+        @info "Reconstructing hierarchical graph..."
+        flush(stdout)
+        command = [
+            "python",
+            joinpath(@__DIR__,"hierarchical_reconstruction.py"),
+            "-i", args["input-dir"]
+        ]
+        command = Cmd(command)
+        run(command)
+    end
     @info "\tDone!"
     flush(stdout)
 end

@@ -58,8 +58,8 @@ function write_group_results(;path,label,stage,cache_label,compiled_label,n_inpu
     return
 end
 
-function write_dictionary_as_csv(dict,path)
-    open_file_write(path,gzip=true) do handle
+function write_dictionary_as_csv(dict,path,gzip=false)
+    open_file_write(path,gzip=gzip) do handle
         for (id,vec) in dict
             write(handle,"$id,$(join(vec,','))\n")
         end
@@ -97,7 +97,7 @@ end
 function load_input_array_as_lists(path)
     ids = Vector{String}()
     vecs = Vector{Vector{Float32}}()
-    open_file_read(path,gzip=true) do handle
+    open_file_read(path,gzip=false) do handle
         for line in readlines(handle)
             entry = split(line,",")
             id = entry[1]
@@ -111,7 +111,7 @@ end
 
 function load_input_array_as_dictionary(path)
     input_dict = Dict{String,Vector{Float32}}()
-    open_file_read(path,gzip=true) do handle
+    open_file_read(path,gzip=false) do handle
         for line in readlines(handle)
             entry = split(line,",")
             id = entry[1]
@@ -129,16 +129,16 @@ function partition_input_file(input_path,label,invariant_args)
 
     function get_partitioned_input_path(p)
         partition_label = "partition_$(lpad(string(p),8,'0'))"
-        return joinpath(partition_dir, "$(label).$(partition_label).csv.gz")
+        return joinpath(partition_dir, "$(label).$(partition_label).csv")
     end
 
     p = 1
     buffer = []
-    open_file_read(input_path,gzip=true) do instream
+    open_file_read(input_path,gzip=false) do instream
         for line in eachline(instream)
             if length(buffer) == invariant_args["partition-size"]
                 partitioned_input_path = get_partitioned_input_path(p)
-                open_file_write(partitioned_input_path,gzip=true) do outstream
+                open_file_write(partitioned_input_path,gzip=false) do outstream
                     write(outstream,join(buffer,"\n")*"\n")
                 end
                 empty!(buffer)
@@ -150,7 +150,7 @@ function partition_input_file(input_path,label,invariant_args)
 
     if !isempty(buffer)
         partitioned_input_path = get_partitioned_input_path(p)
-        open_file_write(partitioned_input_path,gzip=true) do outstream
+        open_file_write(partitioned_input_path,gzip=false) do outstream
             write(outstream,join(buffer,"\n")*"\n")
         end
     end
@@ -164,7 +164,7 @@ function batch_partitioned_files(partition_dir,label,invariant_args)
         return joinpath(partition_dir,"$(label).$(batch_label).work")
     end
 
-    pattern = "$(label).partition_*.csv.gz"
+    pattern = "*.csv"
     paths = sort(glob(pattern,partition_dir))
 
     files = []
@@ -200,7 +200,7 @@ function partition_and_batch_input_files(input_path,label,invariant_args)
 end
 
 function get_object_count(path)
-    command = pipeline(`zcat $path`,`wc -l`)
+    command = pipeline(`cat $path`,`wc -l`)
     return parse(Int,strip(read(command,String)))
 end
 
@@ -232,23 +232,40 @@ function concatenate_files(paths,concatenated_path; gzip=false)
                     x += 1
                 end
             end
+            rm(path)
         end
     end
     return x
 end
 
 function concatenate_partitioned_results(label,partition_dir,invariant_args)
-    representatives_pathlist = glob("*.representatives.csv.gz",partition_dir)
+    representatives_pathlist = glob("*.representatives.csv",partition_dir)
     groups_pathlist = glob("*.groups.jsonl.gz",partition_dir)
-    concat_representatives_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.representatives.csv.gz")
+    concat_representatives_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.representatives.csv")
     concat_groups_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.groups.jsonl.gz")
-    concatenate_files(representatives_pathlist,concat_representatives_path,gzip=true)
+    concatenate_files(representatives_pathlist,concat_representatives_path,gzip=false)
     x = concatenate_files(groups_pathlist,concat_groups_path,gzip=true)
     return concat_representatives_path,concat_groups_path,x
 end
 
-function delete_work_directory(dir)
-    rm(dir,recursive=true)
+function is_broken_symlink(path)
+    return islink(path) && !isfile(path)
+end
+
+function clean_directory(work_dir,partition_dir,exclusion_set)
+    rm(partition_dir,recursive=true)
+    pattern = "*.representatives.csv"
+    for path in glob(pattern,work_dir)
+        if path in exclusion_set continue end
+        rm(path)
+    end
+    pattern = "*.input.csv"
+    for path in glob(pattern,work_dir)
+        if is_broken_symlink(path)
+            rm(path)
+        end
+    end
+    return
 end
 
 function write_value_as_txt(value,path)

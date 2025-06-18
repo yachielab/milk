@@ -16,6 +16,7 @@ function instantiate_invariant_args(args)
         "job-name"         => args["job-name"],
         "job-memory"       => args["job-memory"],
         "environment-path" => args["environment-path"],
+        "verbose"          => args["verbose"],
         "output-dir"       => abspath(args["output-dir"])
     )
     return invariant_args
@@ -24,8 +25,9 @@ end
 function log_args(args)
     @info "Parsed Arguments:"
     for (key,value) in args
-        @info "$(key): $(value)"
+        @info "  $(key): $(value)"
     end
+    @info "=========="
     flush(stdout)
 end
 
