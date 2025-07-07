@@ -1,5 +1,6 @@
 using JSON
 using Glob
+using CodecZlib
 using Statistics
 
 function load_groups_as_dictionary(path)

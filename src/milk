@@ -222,8 +222,8 @@ function main()
         @info "Reconstructing hierarchical graph..."
         flush(stdout)
         command = [
-            "python",
-            joinpath(@__DIR__,"hierarchical_reconstruction.py"),
+            "julia",
+            joinpath(@__DIR__,"hierarchical_reconstruction.jl"),
             "-i", args["input-dir"]
         ]
         command = Cmd(command)

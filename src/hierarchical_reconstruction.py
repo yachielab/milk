@@ -56,7 +56,6 @@ def hierarchical_reconstruction():
     pattern = os.path.join(args.input_dir,"*.groups.jsonl*")
     pathlist = sorted(glob(pattern))
 
-
     print("Instantiating clades_dict on initial recursion (iteration 1)",flush=True)
     groups_path = pathlist[0]
     iteration = extract_iteration_label(groups_path)
