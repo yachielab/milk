@@ -15,35 +15,35 @@ function parse_arguments()
         "--input-path","-i" 
             arg_type = String
             required = true
-            help = ""
+            help = "Uncompressed CSV file. First column corresponds to object IDs (e.g., cell barcode). No header"
         "--batch-size","-b"
             arg_type = Int
             default = 50
-            help = ""
+            help = "[HPC mode] The number of partitioned input files to be assigned per job."
         "--sample-size","-n"
             arg_type = Int
             default = 1
-            help = ""
+            help = "Stopping point for recursion process. Sample size of 1 recurses until a single group remains."
         "--cache-size-limit","-c"
             arg_type = Int
             default = 50000
-            help = ""
+            help = "How many (representative) objects to cache for medoid optimization in subsequent recursions."
         "--partition-size","-p"
             arg_type = Int
             default = 10000
-            help = ""
+            help = "How many objects per partitioned file."
         "--merge-threshold","-M"
             arg_type = Int
             default = 100000
-            help = ""
+            help = "Threshold of when to carry out an additional merging stratification process (if exceeded, basic concatenation to join partitioned groups)"
         "--compile-previous-threshold","-P"
             arg_type = Int
             default = 1000000
-            help = "Only carry forward previous groups if the number of representatives is below this threshold (tractability)."
+            help = "Only carry forward previous groups if the number of representatives is below this threshold (tractability). TODO maybe delete"
         "--metric","-m"
             arg_type = String
             default = "euclidean"
-            help = ""
+            help = "Distance metric for pairwise comparisons. Permissible values: {'cosine','euclidean'})"
         "--label","-l"
             arg_type = String
             default = nothing
@@ -51,15 +51,15 @@ function parse_arguments()
         "--percentile","-t"
             arg_type = Float64
             default = 1.0
-            help = ""
+            help = "Threshold for stratification process to group cells."
         "--threads","-T"
             arg_type = Int
             default = 1
-            help = ""
+            help = "Number of distrbuted processes. TODO change to n_cpus"
         "--seed","-r"
             arg_type = Int
             default = 21
-            help = ""
+            help = "Random seed"
         "--job-scheduler"
             arg_type = String
             default = "slurm"
