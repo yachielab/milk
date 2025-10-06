@@ -457,7 +457,7 @@ function recursive_processing(;representatives_path,iteration,label,cache_path,p
     end
 
     i = iteration
-    full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+    full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
     while n > invariant_args["sample-size"]
         @info "Iteration: $i ($n objects)"
         flush(stdout)
@@ -475,7 +475,7 @@ function recursive_processing(;representatives_path,iteration,label,cache_path,p
         n = length(data_dict)
         @info "\t$n objects after recursive iteration."
         i += 1
-        full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+        full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
     end
     return
 end

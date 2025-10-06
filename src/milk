@@ -23,7 +23,7 @@ function parse_arguments()
         "--sample-size","-n"
             arg_type = Int
             default = 1
-            help = "Stopping point for recursion process. Sample size of 1 recurses until a single group remains."
+            help = "Sample size threshold for the number of groups required to stop the recursive grouping process. Recursion stops when the number of (representative) objects is less than or equal to this value."
         "--cache-size-limit","-c"
             arg_type = Int
             default = 50000
@@ -47,7 +47,7 @@ function parse_arguments()
         "--label","-l"
             arg_type = String
             default = nothing
-            help = ""
+            help = "Specify string label for file names."
         "--percentile","-t"
             arg_type = Float64
             default = 1.0
@@ -55,45 +55,45 @@ function parse_arguments()
         "--threads","-T"
             arg_type = Int
             default = 1
-            help = "Number of distrbuted processes. TODO change to n_cpus"
+            help = "Number of distributed processes for computing pairwise comparisons. (TODO change to n_cpus)"
         "--seed","-r"
             arg_type = Int
             default = 21
-            help = "Random seed"
+            help = "Random seed."
         "--job-scheduler"
             arg_type = String
             default = "slurm"
-            help = ""
+            help = "[HPC mode] Job scheduler to distribute partitioned batches of stratification processes. Supported schedulers: {'slurm','sge'}"
         "--job-account"
             arg_type = String
             default = nothing
-            help = ""
+            help = "[HPC mode] Account name associated with account (only for SLURM job scheduler)."
         "--job-name"
             arg_type = String
             default = "milk"
-            help = ""
+            help = "[HPC mode] Job names"
         "--job-memory"
             arg_type = Int
             default = 4
-            help = ""
+            help = "[HPC mode] Memory of jobs (in gigabytes)."
         "--job-time"
             arg_type = String
-            default = ""
-            help = "24:00:00"
+            default = "24:00:00"
+            help = "[HPC mode] Allotted time for jobs (only for SLURM job scheduler)."
         "--environment-path"
             arg_type = String
             default = nothing
-            help = ""
+            help = "[HPC mode] Bash script to set up environment in submitted jobs."
         "--verbose"
             action = :store_true
-            help = ""
+            help = "Amount of information written to standard out/err."
         "--skip-reconstruction"
             action = :store_true
-            help = ""
+            help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
         "--output-dir","-o"
             arg_type = String
             default = "."
-            help = ""
+            help = "Directory to write intermediate and output files."
     end
     return parse_args(args)
 end
@@ -132,7 +132,7 @@ function main()
     # Initial recursion
     i = 0
 
-    full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+    full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
     input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
     symlink(abspath(args["input-path"]),input_path)
@@ -186,7 +186,7 @@ function main()
             end
 
             i += 1
-            full_label = "$(label).iteration_$(lpad(string(i),3,'0'))"
+            full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
             @info "Iteration: $i ($n objects)"
             flush(stdout)
 
@@ -224,7 +224,7 @@ function main()
         command = [
             "julia",
             joinpath(@__DIR__,"hierarchical_reconstruction.jl"),
-            "-i", args["input-dir"]
+            "-i", args["output-dir"]
         ]
         command = Cmd(command)
         run(command)

@@ -102,9 +102,12 @@ function load_input_array_as_lists(path)
         for line in readlines(handle)
             entry = split(line,",")
             id = entry[1]
-            vec = parse.(Float32,entry[2:end])
-            push!(ids,id)
-            push!(vecs,vec)
+            # vec = parse.(Float32,entry[2:end])
+            vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
+            if !any(isnan,vec)
+                push!(ids,id)
+                push!(vecs,vec)
+            end
         end
     end
     return ids,vecs
@@ -116,8 +119,11 @@ function load_input_array_as_dictionary(path)
         for line in readlines(handle)
             entry = split(line,",")
             id = entry[1]
-            vec = parse.(Float32,entry[2:end])
-            input_dict[id] = vec
+            # vec = parse.(Float32,entry[2:end])
+            vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
+            if !any(isnan,vec)
+                input_dict[id] = vec
+            end
         end
     end
     return input_dict
