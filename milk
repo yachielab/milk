@@ -1,0 +1,20 @@
+#!/usr/bin/env julia
+
+# Get the directory of this script
+script_dir = @__DIR__
+
+# Include the Milk module relative to this script
+# include(joinpath(script_dir, "src/milk.jl"))
+
+include("src/milk.jl")
+
+# Use the local Milk module
+using .Milk
+
+Milk.main()
+
+# #!/usr/bin/env julia
+
+# using Milk
+
+# Milk.main()

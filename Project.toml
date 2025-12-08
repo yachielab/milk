@@ -1,0 +1,12 @@
+name = "milk"
+uuid = "1d4e0371-af89-4b64-a40b-7a7c7e5e541f"
+authors = ["Brett Kiyota"]
+version = "1.0.0"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
+Distances = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"

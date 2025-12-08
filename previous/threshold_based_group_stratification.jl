@@ -1,11 +1,11 @@
-using ArgParse
-using StatsBase
-using Base.Threads
-using Logging
+# using ArgParse
+# using StatsBase
+# using Base.Threads
+# using Logging
 
-include("utils/utils.jl")
-include("utils/file_handling.jl")
-include("utils/pairwise_comparisons.jl")
+# include("utils/utils.jl")
+# include("utils/file_handling.jl")
+# include("utils/pairwise_comparisons.jl")
 
 function parse_arguments()
     args = ArgParseSettings()

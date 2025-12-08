@@ -1,8 +1,8 @@
-using Logging
-using Distributed
+# using Logging
+# using Distributed
 
 @everywhere using StatsBase, Distances
-@everywhere include("file_handling.jl")
+# @everywhere include("file_handling.jl")
 
 @everywhere function compute_cosine_distance(vec_i,vec_j)
     return cosine_dist(vec_i,vec_j)

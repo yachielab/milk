@@ -1,5 +1,5 @@
-using Glob
-include("file_handling.jl")
+# using Glob
+# include("file_handling.jl")
 
 function instantitate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,previous_groups_path,output_dir,invariant_args)
     jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
@@ -26,6 +26,7 @@ function instantitate_array_job_script(;label,n_batches,array_inputs_path,thresh
         PREVIOUS_GROUPS_PATH=$(previous_groups_path)
         OUTPUT_DIR=$(output_dir)\n
         BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
+        export JULIA_NUM_THREADS=$(ninvariance_args["threads"])\n
         """
     elseif invariant_args["job-scheduler"] == "slurm"
         job_script = """#!/bin/bash
@@ -48,22 +49,22 @@ function instantitate_array_job_script(;label,n_batches,array_inputs_path,thresh
         PREVIOUS_GROUPS_PATH=$(previous_groups_path)
         OUTPUT_DIR=$(output_dir)\n
         BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
+        export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
         """
     else
         throw
     end
 
     job_script *= """
-    julia --procs $(invariant_args["threads"]) \
-    $(dirname(@__DIR__))/batch_stratification_distributed.jl \\
-    -i \$BATCH_DIR \\
-    -t \$THRESHOLD \\
-    -p \$PERCENTILE \\
-    -m \$METRIC \\
-    -c \$CACHE_PATH \\
-    -G \$PREVIOUS_GROUPS_PATH \\
-    --verbose \\
-    -o \$OUTPUT_DIR
+    $(dirname(@__DIR__))/milk
+    --group-stratification-mode \
+    --stratification-input-dir \$BATCH_DIR \\
+    --stratification-threshold \$THRESHOLD \\
+    --stratification-percentile \$PERCENTILE \\
+    --stratification-metric \$METRIC \\
+    --stratification-cache-path \$CACHE_PATH \\
+    --stratification-previous-groups-path \$PREVIOUS_GROUPS_PATH \\
+    --stratification-output-dir \$OUTPUT_DIR
     """
 
     script_path = joinpath(jobs_dir,"$(label).array_jobs.sh")

@@ -1,12 +1,12 @@
-using GZip
-using Glob
-using CodecZlib
-using Distances
-using Base.Iterators
-using Base.Threads
-using Logging
+# using GZip
+# using Glob
+# using CodecZlib
+# using Distances
+# using Base.Iterators
+# using Base.Threads
+# using Logging
 
-include("file_handling.jl")
+# include("file_handling.jl")
 
 function group_stratification_precomputed_distances(;ids,vecs,D,index_map,threshold)
     representative_dict = Dict{String,Vector{Float32}}()

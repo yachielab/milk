@@ -1,17 +1,17 @@
-using GZip
-using Glob
-using CodecZlib
-using Random
-using StatsBase
-using Distances
-using Base.Iterators
+# using GZip
+# using Glob
+# using CodecZlib
+# using Random
+# using StatsBase
+# using Distances
+# using Base.Iterators
 # using Base.Threads
-using Logging
-using Distributed
+# using Logging
+# using Distributed
 
-include("hpc.jl")
-include("file_handling.jl")
-@everywhere include("pairwise_comparisons.jl")
+# include("hpc.jl")
+# include("file_handling.jl")
+# @everywhere include("pairwise_comparisons.jl")
 
 @everywhere function map_object_precomputed(i,representative_dict,D,index_map,threshold)
     """
@@ -215,20 +215,26 @@ function attempt_to_merge_partitioned_results(;concat_representatives_path,conca
     groups_path = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
     if (p > 1) && (m <= invariant_args["merge-threshold"])
         # @info "\tMerging: number of concatenated groups, $m <= merge threshold ($(invariant_args["merge-threshold"]))"
-        command = [
-            "julia",
-            joinpath(dirname(@__DIR__),"representative_stratification_merge.jl"),
-            "-i", concat_representatives_path,
-            "-g", concat_groups_path,
-            "-t", string(threshold),
-            "-l", label,
-            "-m", invariant_args["metric"],
-            "--verbose",
-            "-o", invariant_args["output-dir"]
-        ]
-        if !isnothing(cache_path)
-            push!(command,"-c",cache_path)
-        end
+        # command = [
+        #     "julia",
+        #     joinpath(dirname(@__DIR__),"representative_stratification_merge.jl"),
+        #     "-i", concat_representatives_path,
+        #     "-g", concat_groups_path,
+        #     "-t", string(threshold),
+        #     "-l", label,
+        #     "-m", invariant_args["metric"],
+        #     "--verbose",
+        #     "-o", invariant_args["output-dir"]
+        # ]
+        group_aggregation_by_stratification(
+            input_path=concat_representatives_path,
+            groups_path=concat_groups_path,
+            threshold=threshold,
+            cache_path=cache_path,
+            label=label,
+            metric=invariant_args["metric"],
+            output_dir=invariant_args["output-dir"]
+        )
         command = Cmd(command)
         run(command)
     else
@@ -434,7 +440,7 @@ function process(;input_path,label,cache_path,previous_groups_path,invariant_arg
 end
 
 
-function recursive_processing(;representatives_path,iteration,label,cache_path,previous_groups_path,invariant_args)
+function direct_recursive_processing(;representatives_path,iteration,label,cache_path,previous_groups_path,invariant_args)
     # carrying out remaining recursions in a single function rather than the framework (overhead is high for single input file)
     @info "========== Starting encapsulated recursions..."
 

@@ -1,20 +1,9 @@
-using ArgParse
-using Logging
-using Glob
-using JSON
+# using ArgParse
+# using Logging
+# using Glob
+# using JSON
 
-include("utils/file_handling.jl")
-
-function parse_arguments()
-    args = ArgParseSettings()
-    @add_arg_table args begin
-        "--input-dir","-i"
-            arg_type = String
-            required = true
-            help = ""
-    end
-    return parse_args(args)
-end
+# include("utils/file_handling.jl")
 
 function extract_iteration(path)
     iteration = replace(basename(path), ".gz" => "", ".groups.jsonl" => "")
@@ -22,13 +11,12 @@ function extract_iteration(path)
     return parse(Int,iteration)
 end
 
-function main()
-    args = parse_arguments()
+function hierarchical_reconstruction(input_dir)
 
     @info "Hierarchical reconstruction"
     flush(stdout)
 
-    output_dir = joinpath(args["input-dir"],"output")
+    output_dir = joinpath(input_dir,"output")
     try
         mkdir(output_dir)
     catch e
@@ -38,9 +26,9 @@ function main()
     vertices_path = joinpath(output_dir,"vertices.csv.gz")
     edges_path = joinpath(output_dir,"edges.csv.gz")
 
-    pathlist = sort(glob("*.groups.jsonl.gz",args["input-dir"]))
+    pathlist = sort(glob("*.groups.jsonl.gz",input_dir))
     if length(pathlist) == 0
-        error("No '.groups.jsonl.gz' files found in directory: $(args["input-dir"])")
+        error("No '.groups.jsonl.gz' files found in directory: $(input_dir)")
     end
 
     id_map = Dict{String,String}()
@@ -116,5 +104,3 @@ function main()
     end
 
 end
-
-main()

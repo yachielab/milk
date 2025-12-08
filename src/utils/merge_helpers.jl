@@ -1,5 +1,5 @@
 
-include("pairwise_comparisons.jl")
+# include("pairwise_comparisons.jl")
 
 function map_object(vec,representative_dict,threshold,distance_function)
     closest_id = nothing
