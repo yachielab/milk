@@ -5,7 +5,7 @@ module HPC
 
     export submit_stratification_batch_array_jobs
 
-    function instantitate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,previous_groups_path,output_dir,invariant_args)
+    function instantiate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,previous_groups_path,output_dir,invariant_args)
         jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
         stdout_dir = joinpath(jobs_dir,"stdout")
         stderr_dir = joinpath(jobs_dir,"stderr")
@@ -42,8 +42,8 @@ module HPC
             #SBATCH --cpus-per-task=$(invariant_args["threads"])
             #SBATCH --time=$(invariant_args["job-time"])
             #SBATCH --array=1-$(n_batches)
-            #SBATCH --output=$(stdout_dir)
-            #SBATCH --error=$(stderr_dir)\n
+            #SBATCH --output=$(stdout_dir)/%A_%a.out
+            #SBATCH --error=$(stderr_dir)/%A_%a.err\n
             source $(invariant_args["environment-path"])\n
             ARRAY_INPUTS_PATH=$(array_inputs_path)
             THRESHOLD=$(threshold)
@@ -61,12 +61,14 @@ module HPC
 
         job_script *= """
         milk --group-stratification-mode \\
+        --input-path \$BATCH_DIR \\
         --stratification-input-dir \$BATCH_DIR \\
         --stratification-threshold \$THRESHOLD \\
         --stratification-percentile \$PERCENTILE \\
         --stratification-metric \$METRIC \\
         --stratification-cache-path \$CACHE_PATH \\
         --stratification-previous-groups-path \$PREVIOUS_GROUPS_PATH \\
+        -T $(invariant_args["threads"]) \\
         --stratification-output-dir \$OUTPUT_DIR
         """
 
@@ -85,7 +87,7 @@ module HPC
         if isnothing(previous_groups_path)
             previous_groups_path = "nothing"
         end
-        script_path = instantitate_array_job_script(
+        script_path = instantiate_array_job_script(
             label=label,
             n_batches=length(batches),
             array_inputs_path=array_inputs_path,

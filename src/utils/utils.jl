@@ -2,6 +2,7 @@ module Utils
 
     using Random
     using Logging
+    using StatsBase
 
     using ..PairwiseComparisons: map_object_to_representative,map_object_to_representative_precomputed,
                                  determine_percentile_threshold,map_distance_function,compute_pairwise_distance_matrix
@@ -32,8 +33,8 @@ module Utils
             end
             start_time = time()
             threshold = determine_percentile_threshold(sampled_files,invariant_args)
-            elapsed_time = round(time()-start_time,digits=2)
-            @info "\tGlobally-determined percentile threshold: $(threshold) ($(length(sampled_files)) files; $elapsed_time seconds)"
+            elapsed_time = round((time()-start_time)/60,digits=2)
+            @info "\tGlobally-determined percentile threshold: $(threshold) ($(length(sampled_files)) files; $elapsed_time min)"
             flush(stdout)
         else
             threshold = nothing

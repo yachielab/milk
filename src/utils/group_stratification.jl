@@ -4,10 +4,11 @@ module GroupStratification
     using Distributed
 
     using ..FileHandling: load_input_array_as_dictionary,load_groups_as_dictionary,attempt_to_load_cache,
-                          attempt_to_load_previous_groups,write_dictionary_as_csv,write_group_results
+                          attempt_to_load_previous_groups,write_dictionary_as_csv,write_group_results,open_file_write
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative_precomputed,
                                  map_object_to_representative,compute_pairwise_distance_matrix
     using ..RepresentativeOptimization: optimize_representatives
+    using ..HPC: submit_stratification_batch_array_jobs
 
     export stratification,
            stratification_predefined_medoids,
@@ -16,7 +17,8 @@ module GroupStratification
            stratification_process_direct_execution,
            stratification_process_distributed_execution,
            compile_previous_groupings,
-           partitioned_group_stratification
+           partitioned_group_stratification,
+           batch_group_stratification_hpc_mode
 
     function stratification_precomputed_distances(data_dict,D,index_map,threshold)
         representative_dict = Dict{String,Vector{Float32}}()
@@ -130,14 +132,17 @@ module GroupStratification
         distance_function = map_distance_function(invariant_args["metric"])
         cache_dict        = attempt_to_load_cache(cache_path)
         previous_groups   = attempt_to_load_previous_groups(previous_groups_path)
-        if b == 1
-            pathlist = sort(glob("*.csv",batches[1]))
+        if (b == 1 || !invariant_args["hpc-mode"])
+            pathlist = sort(files)
+            start_time = time()
             info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,cache_dict,previous_groups,partition_dir), pathlist)
-            GC.gc() 
+            GC.gc()
+            elapsed_time = round((time()-start_time)/60,digits=2)
             if invariant_args["verbose"]
-                for info in info_list
-                    @info info
-                end
+                # for info in info_list
+                #     @info info
+                # end
+                @info "\tPartitioned group stratification complete! $elapsed_time min to proceses $(length(files)) files"
             end
         else
             @info "\tSubmitting $b batches as an array job..."
@@ -155,8 +160,8 @@ module GroupStratification
         return
     end
 
-    function batch_group_stratification_hpc(input_dir,threshold,percentile,metric,cache_path,
-                                  previous_groups_path,verbose,output_dir)
+    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,cache_path,
+                                                 previous_groups_path,verbose,output_dir)
 
         @info "Starting distributed stratification process"
         @info "  $(nworkers()) workers"
@@ -238,9 +243,9 @@ module GroupStratification
         n_comparisons += x
         direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
 
-        previous_groups_label = "no"
+        previous_groups_label = ""
         if !isnothing(previous_groups)
-            previous_groups_label = "yes"
+            previous_groups_label = "; previous_groupings"
             optimized_groups = compile_previous_groupings(optimized_groups,previous_groups)
         end
 
@@ -250,9 +255,9 @@ module GroupStratification
         g = length(optimization_set)
         t = round(threshold,digits=4)
         N = sum(length(group) for group in values(optimized_groups))
-        elapsed_time = round(end_time-start_time,digits=2)
+        elapsed_time = round((end_time-start_time)/60,digits=2)
 
-        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s)); cache: yes; previous_groups: $previous_groups_label); runtime: $(elapsed_time) seconds"
+        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s); cache$(previous_groups_label)); runtime: $(elapsed_time) min"
 
         groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
         write_group_results(
@@ -280,11 +285,6 @@ module GroupStratification
 
         start_time = time()
 
-        n_comparisons = 0
-        data_dict = load_input_array_as_dictionary(path)
-        D,index_map,threshold_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
-        n_comparisons += x
-
         if isnothing(threshold)
             threshold_label = "computed"
             threshold = threshold_
@@ -292,61 +292,97 @@ module GroupStratification
             threshold_label = "predefined"
         end
 
-        _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
-        optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
-        n_comparisons += x
-        optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
-            data_dict=data_dict,
-            representative_dict=optimized_dict,
-            D=D,
-            index_map=index_map,
-            cache_dict=cache_dict,
-            threshold=threshold,
-            distance_function=distance_function
-        )
-        n_comparisons += x
-        direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
+        n_comparisons = 0
+        data_dict = load_input_array_as_dictionary(path)
+        if length(data_dict) < 2
+            representatives_path = joinpath(output_dir,"$(label).representatives.csv")
+            groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
+            if length(data_dict) == 0
+                open_file_write(representatives_path) do file end
+                open_file_write(groups_path) do file end
+            else
+                representative_id = collect(keys(data_dict))[1]
+                write_dictionary_as_csv(data_dict,representatives_path)
+                write_group_results(
+                    path=groups_path,
+                    label=label,
+                    stage="batch_stratification_process",
+                    cache_label="no",
+                    compiled_label="no",
+                    n_input_objects=length(data_dict),
+                    n_groups=1,
+                    groups=Dict(representative_id => [representative_id]),
+                    optimization_set=Set{String}(),
+                    direct_groupsize_dict=Dict(representative_id => 1),
+                    distances_dict=Dict(representative_id => Float32[]),
+                    specificity_dict=Dict(representative_id => Int32[]),
+                    threshold=threshold,
+                    n_comparisons=n_comparisons
+                )
+                rm(path)
+            end
+            info = "\t[$label] 1 group (0 groups optimized); $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold ($threshold_label); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
+            return info
+        else
+    
+            D,index_map,threshold_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
+            n_comparisons += x
 
-        previous_groups_label = "no"
-        if !isnothing(previous_groups)
-            previous_groups_label = "yes"
-            optimized_groups = compile_previous_groupings(optimized_groups,previous_groups)
+            _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
+            optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
+            n_comparisons += x
+            optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
+                data_dict=data_dict,
+                representative_dict=optimized_dict,
+                D=D,
+                index_map=index_map,
+                cache_dict=cache_dict,
+                threshold=threshold,
+                distance_function=distance_function
+            )
+            n_comparisons += x
+            direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
+
+            previous_groups_label = ""
+            if !isnothing(previous_groups)
+                previous_groups_label = "; previous_groupings"
+                optimized_groups = compile_previous_groupings(optimized_groups,previous_groups)
+            end
+
+            end_time = time()
+
+            n = length(data_dict)
+            G = length(optimized_dict)
+            g = length(optimization_set)
+            t = round(threshold,digits=4)
+            N = sum(length(group) for group in values(optimized_groups))
+            cache_label = isnothing(cache_dict) ? "no" : "yes"
+            elapsed_time = round((end_time-start_time)/60,digits=2)
+
+            info = "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t ($threshold_label); $n_comparisons comparisons ($(nworkers()) CPU(s); $(cache_label)$(previous_groups_label)); runtime: $(elapsed_time) min"
+
+            representatives_path = joinpath(output_dir,"$(label).representatives.csv")
+            groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
+            write_dictionary_as_csv(optimized_dict,representatives_path)
+            write_group_results(
+                path=groups_path,
+                label=label,
+                stage="batch_stratification_process",
+                cache_label=cache_label,
+                compiled_label=previous_groups_label,
+                n_input_objects=N,
+                n_groups=G,
+                groups=optimized_groups,
+                optimization_set=optimization_set,
+                direct_groupsize_dict=direct_groupsize_dict,
+                distances_dict=distances_dict,
+                specificity_dict=specificity_dict,
+                threshold=threshold,
+                n_comparisons=n_comparisons
+            )
+            rm(path)
+            return info
         end
-
-        end_time = time()
-
-        n = length(data_dict)
-        G = length(optimized_dict)
-        g = length(optimization_set)
-        t = round(threshold,digits=4)
-        N = sum(length(group) for group in values(optimized_groups))
-        cache_label = isnothing(cache_dict) ? "no" : "yes"
-        elapsed_time = round(end_time-start_time,digits=2)
-
-        info = "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t ($threshold_label); $n_comparisons comparisons ($(nworkers())) CPU(s); cache: $cache_label; previous_groups: $previous_groups_label); runtime: $(elapsed_time) seconds"
-
-        representatives_path = joinpath(output_dir,"$(label).representatives.csv")
-        groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
-        write_dictionary_as_csv(optimized_dict,representatives_path)
-        write_group_results(
-            path=groups_path,
-            label=label,
-            stage="batch_stratification_process",
-            cache_label=cache_label,
-            compiled_label=previous_groups_label,
-            n_input_objects=N,
-            n_groups=G,
-            groups=optimized_groups,
-            optimization_set=optimization_set,
-            direct_groupsize_dict=direct_groupsize_dict,
-            distances_dict=distances_dict,
-            specificity_dict=specificity_dict,
-            threshold=threshold,
-            n_comparisons=n_comparisons
-        )
-        rm(path)
-        return info
     end
-
 
 end

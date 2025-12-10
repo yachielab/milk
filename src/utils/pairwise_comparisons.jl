@@ -84,6 +84,9 @@ module PairwiseComparisons
 
     function determine_percentile_threshold_process(input_path,metric,p)
         data_dict = load_input_array_as_dictionary(input_path)
+        if length(data_dict) < 2
+            return nothing
+        end
         distance_function = map_distance_function(metric)
         _,_,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function)
         return threshold
@@ -95,8 +98,12 @@ module PairwiseComparisons
         metric = invariant_args["metric"]
         p = invariant_args["percentile"]
         thresholds = pmap(path -> determine_percentile_threshold_process(path,metric,p),pathlist)
+        filtered_thresholds = filter(!isnothing,thresholds)
+        if isempty(filtered_thresholds)
+            error("Unable to compute threshold due to all partitions having too few objects.")
+        end
         GC.gc() 
-        return minimum(thresholds)
+        return minimum(filtered_thresholds)
     end
 
     @inline function update_closest_representative(dist,threshold,representative_id,closest_id,closest_dist,specificity)

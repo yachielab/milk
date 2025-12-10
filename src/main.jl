@@ -1,15 +1,15 @@
 function main()
     args = parse_arguments()
-
+    validate_args(args)
     if args["group-stratification-mode"]
-        batch_group_stratification_hpc(
+        batch_group_stratification_hpc_mode(
             input_dir=args["stratification-input-dir"],
             threshold=args["stratification-threshold"],
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
             cache_path=args["stratification-cache-path"],
             previous_groups_path=args["stratification-previous-groups-path"],
-            verbose=args["stratification-verbose"],
+            verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]
         )
     else
@@ -85,7 +85,7 @@ function main()
                 cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
             end
             # previous_groups_path = groups_path
-            if n <= args["compile-previous-threshold"]
+            if n <= args["cache-size-limit"]
                 previous_groups_path = groups_path
             end
 
@@ -122,7 +122,7 @@ function main()
                 if isnothing(cache_path)
                     cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
                 end
-                if n <= args["compile-previous-threshold"]
+                if n <= args["cache-size-limit"]
                     previous_groups_path = groups_path
                 end
                 @info "\t$n objects after recursive iteration."

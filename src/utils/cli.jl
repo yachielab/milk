@@ -3,7 +3,7 @@ module CLI
     using Logging
     using ArgParse
 
-    export instantiate_invariant_args,log_args,parse_arguments
+    export instantiate_invariant_args,log_args,parse_arguments,validate_args
 
     function parse_arguments()
         args = ArgParseSettings(description="A command-line tool to capture hierarchical relationships at scale.")
@@ -13,10 +13,6 @@ module CLI
                 arg_type = String
                 required = true
                 help = "Uncompressed CSV file. First column corresponds to object IDs (e.g., cell barcode). No header"
-            "--batch-size","-b"
-                arg_type = Int
-                default = 50
-                help = "[HPC mode] The number of partitioned input files to be assigned per job."
             "--sample-size","-n"
                 arg_type = Int
                 default = 1
@@ -33,10 +29,6 @@ module CLI
                 arg_type = Int
                 default = 100000
                 help = "Threshold of when to carry out an additional merging stratification process (if exceeded, basic concatenation to join partitioned groups)"
-            "--compile-previous-threshold","-P"
-                arg_type = Int
-                default = 1000000
-                help = "Only carry forward previous groups if the number of representatives is below this threshold (tractability). TODO maybe delete"
             "--metric","-m"
                 arg_type = String
                 default = "euclidean"
@@ -57,6 +49,30 @@ module CLI
                 arg_type = Int
                 default = 21
                 help = "Random seed."
+            "--verbose"
+                action = :store_true
+                help = "Amount of information written to standard out/err."
+            "--force-overwrite"
+                action = :store_true
+                help = "Overwrite output directory if it already exists."
+            "--skip-reconstruction"
+                action = :store_true
+                help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
+            "--output-dir","-o"
+                arg_type = String
+                default = "./milk.out"
+                help = "Directory to write intermediate and output files."
+        end
+
+        add_arg_group(args,"[High-Performance Computing mode] Cluster computing for large-scale MILK runs")
+        @add_arg_table args begin
+            "--hpc-mode"
+                action = :store_true
+                help = "Activate HPC mode for MILK execution. If this flag is not specified, all [HPC mode] arguments will be ignored."
+            "--batch-size","-b"
+                arg_type = Int
+                default = 50
+                help = "[HPC mode] The number of partitioned input files to be assigned per job."
             "--job-scheduler"
                 arg_type = String
                 default = nothing
@@ -81,22 +97,9 @@ module CLI
                 arg_type = String
                 default = nothing
                 help = "[HPC mode] Bash script to set up environment in submitted jobs."
-            "--verbose"
-                action = :store_true
-                help = "Amount of information written to standard out/err."
-            "--force-overwrite"
-                action = :store_true
-                help = "Overwrite output directory if it already exists."
-            "--skip-reconstruction"
-                action = :store_true
-                help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
-            "--output-dir","-o"
-                arg_type = String
-                default = "./milk.out"
-                help = "Directory to write intermediate and output files."
         end
 
-        add_arg_group(args,"[INTERNAL] distributed batch group stratification")
+        add_arg_group(args,"[for INTERNAL calls only] distributed batch group stratification")
         @add_arg_table args begin
             "--group-stratification-mode"
                 action = :store_true
@@ -115,8 +118,6 @@ module CLI
             "--stratification-previous-groups-path"
                 arg_type = String
                 default = nothing
-            "--stratification-verbose"
-                action = :store_true
             "--stratification-output-dir"
                 arg_type = String
         end
@@ -125,7 +126,6 @@ module CLI
     end
 
     function instantiate_invariant_args(args)
-        absolute_output_dir = isabspath(args["output-dir"]) ? args["output-dir"] : joinpath(pwd(),args["output-dir"])
         invariant_args = Dict(
             "batch-size"       => args["batch-size"],
             "sample-size"      => args["sample-size"],
@@ -140,9 +140,10 @@ module CLI
             "job-account"      => args["job-account"],
             "job-name"         => args["job-name"],
             "job-memory"       => args["job-memory"],
-            "environment-path" => args["environment-path"],
+            "environment-path" => abspath(args["environment-path"]),
             "verbose"          => args["verbose"],
-            "output-dir"       => absolute_output_dir
+            "output-dir"       => abspath(args["output-dir"]),
+            "hpc-mode"         => args["hpc-mode"]
         )
         return invariant_args
     end
@@ -155,6 +156,32 @@ module CLI
         end
         @info "=========="
         flush(stdout)
+    end 
+
+    function validate_args(args)
+        if args["hpc-mode"]
+            supported_job_schedulers = Set{String}(["slurm","sge"])
+            if !(args["job-scheduler"] in supported_job_schedulers)
+                error("$(args["job_scheduler"]) is either invalid or not supported.")
+            end
+            if args["job-scheduler"] == "slurm"
+                if isnothing(args["job-account"])
+                    error("A job account name is required for SLURM execution.")
+                end
+            end
+            if (isnothing(args["environment-path"]) || !isfile(args["environment-path"]))
+                error("A bash script to initialize environmental variables in submitted jobs is required!")
+            end
+        end
+        if args["group-stratification-mode"]
+            if (isnothing(args["stratification-input-dir"]) || !isdir(args["stratification-input-dir"]))
+                error("Invalid '--stratification-input-dir' specified ($(args["stratification-input-dir"])).")
+            end
+            if (isnothing(args["stratification-output-dir"]) || !isdir(args["stratification-output-dir"]))
+                error("Invalid '--stratification-output-dir' specified ($(args["stratification-output-dir"])).")
+            end
+        end
     end
+
 
 end
