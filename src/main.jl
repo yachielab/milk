@@ -1,131 +1,8 @@
-function parse_arguments()
-    args = ArgParseSettings(prog="milk",description="A command-line tool to capture hierarchical relationships at scale.")
-    add_arg_group(args, "Main arguments")
-    @add_arg_table args begin
-        "--input-path","-i" 
-            arg_type = String
-            required = true
-            help = "Uncompressed CSV file. First column corresponds to object IDs (e.g., cell barcode). No header"
-        "--batch-size","-b"
-            arg_type = Int
-            default = 50
-            help = "[HPC mode] The number of partitioned input files to be assigned per job."
-        "--sample-size","-n"
-            arg_type = Int
-            default = 1
-            help = "Sample size threshold for the number of groups required to stop the recursive grouping process. Recursion stops when the number of (representative) objects is less than or equal to this value."
-        "--cache-size-limit","-c"
-            arg_type = Int
-            default = 50000
-            help = "How many (representative) objects to cache for medoid optimization in subsequent recursions."
-        "--partition-size","-p"
-            arg_type = Int
-            default = 10000
-            help = "How many objects per partitioned file."
-        "--merge-threshold","-M"
-            arg_type = Int
-            default = 100000
-            help = "Threshold of when to carry out an additional merging stratification process (if exceeded, basic concatenation to join partitioned groups)"
-        "--compile-previous-threshold","-P"
-            arg_type = Int
-            default = 1000000
-            help = "Only carry forward previous groups if the number of representatives is below this threshold (tractability). TODO maybe delete"
-        "--metric","-m"
-            arg_type = String
-            default = "euclidean"
-            help = "Distance metric for pairwise comparisons. Permissible values: {'cosine','euclidean'})"
-        "--label","-l"
-            arg_type = String
-            default = nothing
-            help = "Specify string label for file names."
-        "--percentile","-t"
-            arg_type = Float64
-            default = 1.0
-            help = "Threshold for stratification process to group cells."
-        "--threads","-T"
-            arg_type = Int
-            default = 1
-            help = "Number of distributed processes for computing pairwise comparisons. (TODO change to n_cpus)"
-        "--seed","-r"
-            arg_type = Int
-            default = 21
-            help = "Random seed."
-        "--job-scheduler"
-            arg_type = String
-            default = "slurm"
-            help = "[HPC mode] Job scheduler to distribute partitioned batches of stratification processes. Supported schedulers: {'slurm','sge'}"
-        "--job-account"
-            arg_type = String
-            default = nothing
-            help = "[HPC mode] Account name associated with account (only for SLURM job scheduler)."
-        "--job-name"
-            arg_type = String
-            default = "milk"
-            help = "[HPC mode] Job names"
-        "--job-memory"
-            arg_type = Int
-            default = 4
-            help = "[HPC mode] Memory of jobs (in gigabytes)."
-        "--job-time"
-            arg_type = String
-            default = "24:00:00"
-            help = "[HPC mode] Allotted time for jobs (only for SLURM job scheduler)."
-        "--environment-path"
-            arg_type = String
-            default = nothing
-            help = "[HPC mode] Bash script to set up environment in submitted jobs."
-        "--verbose"
-            action = :store_true
-            help = "Amount of information written to standard out/err."
-        "--skip-reconstruction"
-            action = :store_true
-            help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
-        "--output-dir","-o"
-            arg_type = String
-            default = "."
-            help = "Directory to write intermediate and output files."
-    end
-
-    add_arg_group(args,"[INTERNAL] distributed batch group stratification")
-    @add_arg_table args begin
-        "--group-stratification-mode"
-            action = :store_true
-        "--stratification-input-dir"
-            arg_type = String
-        "--stratification-threshold"
-            arg_type = Float64
-        "--stratification-percentile"
-            arg_type = Float64
-            default = nothing
-        "--stratification-metric"
-            arg_type = String
-        "--stratification-cache-path"
-            arg_type = String
-            default = nothing
-        "--stratification-previous-groups-path"
-            arg_type = String
-            default = nothing
-        "--stratification-verbose"
-            action = :store_true
-        "--stratification-output-dir"
-            arg_type = String
-    end
-
-    return parse_args(args)
-end
-
 function main()
     args = parse_arguments()
 
-    n_cpus = args["threads"]
-    n_workers = nworkers()
-    if n_workers < n_cpus
-        addprocs(n_cpus-n_workers)
-        # @everywhere using Milk
-    end
-
     if args["group-stratification-mode"]
-        group_stratification_direct(
+        batch_group_stratification_hpc(
             input_dir=args["stratification-input-dir"],
             threshold=args["stratification-threshold"],
             percentile=args["stratification-percentile"],
@@ -138,14 +15,24 @@ function main()
     else
         logger = ConsoleLogger(stdout,Logging.Info)
         global_logger(logger)
-        @info "milk"
+
+        @info "MILK"
         flush(stdout)
 
-        log_args(args)
+        @info "Using $(nworkers()) worker(s) for distributed processing"
 
+        log_args(args)
         invariant_args = instantiate_invariant_args(args)
 
-        mkpath(invariant_args["output-dir"])
+        if isdir(args["output-dir"])
+            if args["force-overwrite"]
+                @warn "Output directory already exists! Overwriting."
+                rm(args["output-dir"],recursive=true)
+            else
+                error("Output directory ($(args["output-dir"])) already exists! Exiting.")
+            end
+        end
+        mkdir(invariant_args["output-dir"])
 
         if isnothing(args["label"])
             label = replace(basename(args["input-path"]),".csv" => "")
@@ -155,14 +42,17 @@ function main()
 
         cache_path = nothing
         previous_groups_path = nothing
-
-        # Initial recursion
-        i = 0
+        i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
         input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
-        symlink(abspath(args["input-path"]),input_path)
+        absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
+        if islink(input_path)
+            @warn "Symlink already exists! ($input_path)"
+            rm(input_path)
+        end
+        symlink(absolute_input_path,input_path)
 
         n = get_object_count(input_path)
 
@@ -173,7 +63,7 @@ function main()
         cache_path = attempt_to_cache_file(input_path,n,invariant_args)
 
         if n <= args["partition-size"]
-            direct_recursive_processing(
+            recursive_processing_direct_execution(
                 representatives_path=input_path,
                 iteration=i,
                 label=label,
@@ -182,7 +72,7 @@ function main()
                 invariant_args=invariant_args
             )
         else
-            representatives_path,groups_path = process(
+            representatives_path,groups_path = recursive_processing_framework(
                 input_path=input_path,
                 label=full_label,
                 cache_path=nothing,
@@ -201,7 +91,7 @@ function main()
 
             while n > args["sample-size"]
                 if n <= args["partition-size"]
-                    direct_recursive_processing(
+                    recursive_processing_direct_execution(
                         representatives_path=representatives_path,
                         iteration=i,
                         label=label,
@@ -220,7 +110,7 @@ function main()
                 input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
                 symlink(representatives_path,input_path)
 
-                representatives_path,groups_path = process(
+                representatives_path,groups_path = recursive_processing_framework(
                     input_path=input_path,
                     label=full_label,
                     cache_path=cache_path,
@@ -247,7 +137,7 @@ function main()
             @info "Skipping cell hierarchy reconstruction."
         else
             @info "Reconstructing hierarchical graph..."
-            hierarchcial_reconstruction(args["output-dir"])
+            hierarchical_reconstruction(args["output-dir"])
         end
         @info "\tDone!"
         flush(stdout)

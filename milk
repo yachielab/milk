@@ -1,20 +1,19 @@
 #!/usr/bin/env julia
 
-# Get the directory of this script
-script_dir = @__DIR__
+using Distributed
+using Milk  # precompiled module
 
-# Include the Milk module relative to this script
-# include(joinpath(script_dir, "src/milk.jl"))
+# Parse args
+args = Milk.CLI.parse_arguments()
+n_cpus = args["threads"]
 
-include("src/milk.jl")
+# Add workers if needed
+if nworkers() < n_cpus
+    addprocs(n_cpus - nworkers())
+end
 
-# Use the local Milk module
-using .Milk
+# Make the module available on all workers
+@everywhere using Milk
 
+# Run main
 Milk.main()
-
-# #!/usr/bin/env julia
-
-# using Milk
-
-# Milk.main()

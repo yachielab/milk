@@ -135,7 +135,7 @@ function main()
     write_group_results(
         path=groups_path,
         label=label,
-        stage="threshold_based_group_stratification",
+        stage="threshold_based_stratification",
         cache_label=cache_label,
         compiled_label=previous_groups_label,
         n_input_objects=N,
