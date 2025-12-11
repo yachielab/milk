@@ -1,6 +1,8 @@
+# function main()
 function main()
     args = parse_arguments()
     validate_args(args)
+
     if args["group-stratification-mode"]
         batch_group_stratification_hpc_mode(
             input_dir=args["stratification-input-dir"],

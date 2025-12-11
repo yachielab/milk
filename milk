@@ -6,17 +6,29 @@
 using Distributed
 using Milk  # precompiled module
 
-# Parse args
-args = Milk.parse_arguments()
-n_cpus = args["threads"]
+if abspath(PROGRAM_FILE) == @__FILE__
+    # Parse args
+    args = Milk.parse_arguments()
+    n_cpus = args["threads"]
 
-# Add workers if needed
-if nworkers() < n_cpus
-    addprocs(n_cpus - nworkers())
+    # Add workers if needed
+    if nworkers() < n_cpus
+        addprocs(n_cpus - nworkers())
+    end
+
+    # Make the module available on all workers
+    @everywhere using Milk
+
+    # Run main with args
+    Milk.main()
 end
 
-# Make the module available on all workers
-@everywhere using Milk
-
-# Run main
-Milk.main()
+# function julia_main()::Cint
+#     try
+#         real_main()
+#     catch
+#         Base.invokelatest(Base.display_error, Base.catch_stack())
+#         return 1
+#     end
+#     return 0
+# end
