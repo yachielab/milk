@@ -141,7 +141,7 @@ module CLI
             "job-name"         => args["job-name"],
             "job-time"         => args["job-time"],
             "job-memory"       => args["job-memory"],
-            "environment-path" => abspath(args["environment-path"]),
+            "environment-path" => isnothing(args["environment-path"]) ? nothing : abspath(args["environment-path"]),
             "verbose"          => args["verbose"],
             "output-dir"       => abspath(args["output-dir"]),
             "hpc-mode"         => args["hpc-mode"]

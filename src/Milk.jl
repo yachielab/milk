@@ -1,4 +1,5 @@
 module Milk
+
     using ArgParse
     using Logging
     using Distributed
@@ -34,4 +35,24 @@ module Milk
     include("main.jl")
     export main
 
+    function julia_main()::Cint
+        try
+            args = parse_arguments()
+            n_cpus = args["threads"]
+
+            if nworkers() < n_cpus
+                addprocs(n_cpus - nworkers())
+            end
+
+            for p in workers()
+                Distributed.remotecall_eval(@__MODULE__, p, :(using Milk))
+            end
+
+            main()
+        catch e
+            Base.invokelatest(Base.display_error, e, catch_backtrace())
+            return 1
+        end
+        return 0
+    end
 end
