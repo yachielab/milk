@@ -1,3 +1,4 @@
 juliaup add 1.11
+// juliaup default 1.11
 julia +1.11 --project=. -e 'using Pkg; Pkg.resolve()'
 julia +1.11 --project=. build.jl

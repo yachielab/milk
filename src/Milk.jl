@@ -45,7 +45,7 @@ module Milk
             end
 
             for p in workers()
-                Distributed.remotecall_eval(@__MODULE__, p, :(using Milk))
+                Distributed.remotecall_eval(Main, p, :(using Milk))
             end
 
             main()
