@@ -1,0 +1,4 @@
+juliaup add 1.11.9
+// juliaup default 1.11.9
+julia +1.11.9 --project=. -e 'using Pkg; Pkg.instantiate()'
+julia +1.11.9 --project=. build.jl

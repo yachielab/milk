@@ -1,27 +1,30 @@
 #!/usr/bin/env julia
 
-# using Pkg
-# Pkg.activate(@__DIR__)
+import Pkg
+Pkg.activate(@__DIR__)
 
-using Distributed
-using Milk  # precompiled module
+using Milk
+Milk.julia_main()
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    # Parse args
-    args = Milk.parse_arguments()
-    n_cpus = args["threads"]
+# using Distributed
+# using Milk  # precompiled module
 
-    # Add workers if needed
-    if nworkers() < n_cpus
-        addprocs(n_cpus - nworkers())
-    end
+# if abspath(PROGRAM_FILE) == @__FILE__
+#     # Parse args
+#     args = Milk.parse_arguments()
+#     n_cpus = args["threads"]
 
-    # Make the module available on all workers
-    @everywhere using Milk
+#     # Add workers if needed
+#     if nworkers() < n_cpus
+#         addprocs(n_cpus - nworkers())
+#     end
 
-    # Run main with args
-    Milk.main()
-end
+#     # Make the module available on all workers
+#     @everywhere using Milk
+
+#     # Run main with args
+#     Milk.main()
+# end
 
 # function julia_main()::Cint
 #     try
@@ -34,5 +37,4 @@ end
 # end
 
 # using Milk
-
 # Milk.main()   # or Milk.run_pipeline(ARGS)
