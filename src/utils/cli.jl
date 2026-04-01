@@ -139,6 +139,7 @@ module CLI
             "job-scheduler"    => args["job-scheduler"],
             "job-account"      => args["job-account"],
             "job-name"         => args["job-name"],
+            "job-time"         => args["job-time"],
             "job-memory"       => args["job-memory"],
             "environment-path" => abspath(args["environment-path"]),
             "verbose"          => args["verbose"],

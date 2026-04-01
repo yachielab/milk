@@ -1,53 +1,3 @@
-<img src="./imgs/milk_logo_repo.png" width=800>
-
-# Paper
-
-TODO
-
-# Overivew
-
-To address the rapid growth of high-dimensional data in biology and other fields, we present MILK, a scalable approach for capturing highly granular relationships between objects (e.g., single cells). By recursively stratifying the population into groups of highly similar objects based on pairwise distance, MILK builds a hierarchical organization of objects that preserves both global structure and rare local subpopulations. This provides a framework for multi-resolution analysis of ultra-large datasets in a tractable and interpretable manner.
-
-<img src="./imgs/similarity_search_diagram_repo.png">
-
-The main process of MILK involves grouping highly similar objects using a data-driven similarity threshold defined by a lower-tail percentile (e.g., 0.1%) of distances. In a single-pass through the dataset, each candidate object is compared to the representatives of existing groups. If the candidate has a distance below the threshold to any group, it is mapped to the group it is most similar to; otherwise, it is considered distinct, in which case it forms a new group and becomes its representative. The first candidate object forms a new group by default.
-
-<img src="./imgs/milk_recursive_framework_repo.png">
-
-To handle datasets that exceed available memory, MILK employs a recursive, out-of-core strategy that involves partitioning the population into tractable subsets and processing them with a shared global similarity threshold. After identifying groups within each subpopulation, representatives are optimized to be the medoid of each group. All groups are then aggregated into a global list and, if tractable, an additional grouping process is performed on the representatives to resolve potential overlap across partitions.
-
-By carrying forward only representatives, this pipeline can be applied recursively to progressively merge groups according to the percentile-based similarity threshold. If allowed to run to completion, a global hierarchical structure is produced over the complete population.
-
-
-# Installation
-
-Install Julia from the official [website](https://julialang.org/downloads/).
-
-> Note that MILK was developed and tested using Julia version 1.11.3.
----
-Install MILK using Julia's package manager:
-
-In REPL:
-```
-using Pkg
-Pkg.add(url="https://github.com/yachielab/milk.git")
-```
-
-Or, from the shell:
-```
-julia -e 'using Pkg; Pkg.add(url="https://github.com/yachielab/milk.git")'
-```
----
-Optionally, users can export the source directory to `PATH`:
-```
-echo 'export PATH="$PATH:./milk"
-```
----
-Confirm successful installation with the following call:
-```
-milk -h
-```
-
 # Usage
 
 ```
@@ -144,16 +94,16 @@ Main arguments:
 
 ## Example usage
 
-Below is the minimal `milk` call :
+Below is the minimal `milk` call in terminal:
 ```
 milk -i input.csv
 ```
 
-### Input
+## Input
 
-The input file is an uncompressed CSV containing no headers. The first column denotes object IDs, which will be interpreted as strings. Subsequent columns contain the aligned high-dimensional values associated with each object.
+The input file is an uncompressed CSV containing no headers. The first column denotes object IDs, which will be interpreted as strings. Subsequent columns contain the aligned high-dimensional values associated with each object (row).
 
-Permissible values can refer to real numbers including gene expression counts, lower-dimensional embeddings (e.g., principal components, latent embeddings, etc...).
+> Permissible values can refer to real numbers including gene expression counts, lower-dimensional embeddings (e.g., principal components, latent embeddings, etc...).
 
 Below is an excerpt from the PBMC 3k dataset used in tutorial that was obtained with `head -n 5 ./tutorial/input.csv`:
 ```
@@ -166,7 +116,7 @@ AAACCGTGTATGCG-1,-1.1128161,-8.152788,1.3324049,...
 ```
 > Currently, objects containing any missing data will be filtered.
 
-### Output
+## Output
 
 MILK outputs a hierarchical representation of the input dataset as a tabular edge and node list format.
 
@@ -190,3 +140,37 @@ I4,GAGGTTTGTAAGCC-1
 * `spread`: Approximate mean distance of each group member to its medoid.
 * `specificity`: Approximate mean number of groups each member could viably be mapped to given the threshold at that iteration.
 * `resolution`: The number of comparisons used to determine `spread` and `specificty`. This is based on the cache size. Greater the resolution, the more robust the approximation is likely to be.
+
+## MILK heuristics
+
+To achieve scalability, MILK implements heuristics to circumvent exhaustive calculation of pairwise comparisons, which scales quadratically with the number of objects.
+
+Firstly, in the grouping process, each candidate object is only compared to the representatives of currently existing groups. The similarity threshold on the lower-extreme tail of the pairwise distribution ensures that only highly similar objects to the group representatives will merge.
+
+Secondly, the partitioning of data into computationally tractable subsets dictates which objects can be potentially grouped. As a consequence, globally optimal groupings may not be identified. This is particularly relevant when the total number of groups across all partitions is intractable (i.e., above the merge threshold). To mitigate this MILK applies a shared global similarity threshold across all partitions. Related to this, the order of objects is preserved throughout the entire MILK execution process. This preservation can be leveraged to impart "prior knowledge" based on metadata information (e.g., pre-sort by cell type labels) or allow a more structure shuffle randomization of objects across multiple trials of MILK.
+
+## High Performance Computing mode
+
+For very large-scale datasets (i.e., on the order of tens to hundreds of millions of objects), MILK can be executed on HPC clusters. Given that partitioning of the entire population into tractable subsets becomes necessary with MILK at increasing dataset scales, parallelization by distributed computing processes (`-T` argument) becomes insufficient once there are thousands of partitions to process.
+
+> For example, if you set a partition size of 10k cells (~50M pairwise comparisons), a dataset with 10M cells would generate 1k partitions.
+
+The strategy to overcome this computational demand is to create batches of partitions (e.g., 50 partitions per batch), where each batch is submitted as as independent job on a HPC cluster. 
+
+> The computing costs of 1k partitions can then be handled across 1000/50=20 jobs.
+
+Batch size can be set by specifying the `-b` argument.
+
+Note that if the `--hpc-mode` flag is not specified in the `milk` call, then any HPC-specific arguments will be ignored.
+
+An example call is provided below:
+```
+milk \
+-i input.csv \
+-T 4 \
+--hpc-mode \
+--environment-path env_setup.sh \
+--job-scheduler 'sge' \
+--job-memory 8
+```
+The `--environment-path` argument expects the file path to a shell script that carrious out the activation of environment variables (e.g., conda environments), or exporting the milk executable to `PATH`. It will be invoked at the start of submitted job scripts as follows: `source env_setup.sh`.
