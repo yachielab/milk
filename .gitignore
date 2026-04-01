@@ -5,3 +5,6 @@ precompilation.jl
 app/
 .ipynb_checkpoints
 .DS_Store
+test/
+build/
+deployment/
