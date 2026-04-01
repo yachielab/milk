@@ -1,5 +1,0 @@
-*.out
-*.csv
-*.sh
-precompilation.jl
-app/
