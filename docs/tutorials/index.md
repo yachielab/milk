@@ -2,6 +2,9 @@
 
 This section provides more detailed examples applying MILK to actual datasets and some of the downstream analyses that can be facilitated.
 
+> Coming soon!
+
+<!-- 
 ```{toctree}
 :maxdepth: 2
 
@@ -44,4 +47,4 @@ The MILK tree structure is inherently conducive to multi-resultion analyses. In 
 
 ### 5. Outlier detection
 
-### 6. Unbiased nearest-neighbor detection (arbitrary *k*)
+### 6. Unbiased nearest-neighbor detection (arbitrary *k*) -->

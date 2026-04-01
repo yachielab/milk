@@ -1,4 +1,4 @@
-<img src="./imgs/milk_logo_repo.png" width=800>
+<img src="https://raw.githubusercontent.com/yachielab/milk/main/imgs/milk_logo_repo.png" width=800>
 
 # Paper
 
@@ -8,11 +8,11 @@ TODO
 
 To address the rapid growth of high-dimensional data in biology and other fields, we present MILK, a scalable approach for capturing highly granular relationships between objects (e.g., single cells). By recursively stratifying the population into groups of highly similar objects based on pairwise distance, MILK builds a hierarchical organization of objects that preserves both global structure and rare local subpopulations. This provides a framework for multi-resolution analysis of ultra-large datasets in a tractable and interpretable manner.
 
-<img src="./imgs/similarity_search_diagram_repo.png">
+<img src="https://raw.githubusercontent.com/yachielab/milk/main/imgs/similarity_search_diagram_repo.png">
 
 The main process of MILK involves grouping highly similar objects using a data-driven similarity threshold defined by a lower-tail percentile (e.g., 0.1%) of distances. In a single-pass through the dataset, each candidate object is compared to the representatives of existing groups. If the candidate has a distance below the threshold to any group, it is mapped to the group it is most similar to; otherwise, it is considered distinct, in which case it forms a new group and becomes its representative. The first candidate object forms a new group by default.
 
-<img src="./imgs/milk_recursive_framework_repo.png">
+<img src="https://raw.githubusercontent.com/yachielab/milk/main/imgs/milk_recursive_framework_repo.png">
 
 To handle datasets that exceed available memory, MILK employs a recursive, out-of-core strategy that involves partitioning the population into tractable subsets and processing them with a shared global similarity threshold. After identifying groups within each subpopulation, representatives are optimized to be the medoid of each group. All groups are then aggregated into a global list and, if tractable, an additional grouping process is performed on the representatives to resolve potential overlap across partitions.
 
