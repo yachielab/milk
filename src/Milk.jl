@@ -21,7 +21,6 @@ module Milk
     include("utils/cli.jl")
     include("utils/utils.jl")
 
-    
     using .FileHandling
     using .PairwiseComparisons
     using .RepresentativeOptimization

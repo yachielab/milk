@@ -2,9 +2,10 @@
 *.csv
 *.sh
 precompilation.jl
-app/
+milk_app/
 .ipynb_checkpoints
 .DS_Store
-test/
-build/
-deployment/
+.readthedocs.yaml
+build.jl
+build.txt
+data/

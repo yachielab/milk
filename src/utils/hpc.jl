@@ -38,7 +38,7 @@ module HPC
             #SBATCH --job-name=$(invariant_args["job-name"])
             #SBATCH --ntasks=1
             #SBATCH --nodes=1
-            #SBATCH --mem=$(invariant_args["job-memory"])GB
+            #SBATCH --mem=$(invariant_args["job-memory"]*invariant_args["threads"])GB
             #SBATCH --cpus-per-task=$(invariant_args["threads"])
             #SBATCH --time=$(invariant_args["job-time"])
             #SBATCH --array=1-$(n_batches)
