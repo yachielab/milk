@@ -1,0 +1,7 @@
+*.out
+*.csv
+*.sh
+precompilation.jl
+app/
+.ipynb_checkpoints
+.DS_Store
