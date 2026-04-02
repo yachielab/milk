@@ -9,3 +9,6 @@ milk_app/
 build.jl
 build.txt
 data/
+test/
+build/
+deployment/
