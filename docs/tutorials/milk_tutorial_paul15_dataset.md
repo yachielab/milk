@@ -38,7 +38,7 @@ This loads the dataset as an `anndata` object with 2730 cells and 3451 genes. It
 adata.obs.head()
 ```
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -125,7 +125,7 @@ input_df.to_csv("input.csv",header=False)
 
 The table below depicts an excerpt of the input table:
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -400,7 +400,7 @@ edges_df = pd.read_csv(edges_path)
 ```
 
 Table with vertex (i.e., node) information:
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -489,7 +489,7 @@ Table with vertex (i.e., node) information:
 </div>
 
 Table including edge information:
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -570,8 +570,8 @@ Note the `metadata.csv` table is derived via the following call: `adata.obs.to_c
 metadata_df <- read.csv(metadata_path) %>% dplyr::rename(representative_id=X)
 ```
 
-<div style="overflow-x: auto;">
-<table class="dataframe">
+<div style="overflow-x: auto; margin-bottom: 20px;">
+<table class="dataframe" border="1" style="border-collapse: collapse;">
 <thead>
 	<tr><th></th><th scope=col>representative_id</th><th scope=col>paul15_clusters</th><th scope=col>n_genes</th><th scope=col>leiden</th><th scope=col>paul15_clusters_colors</th></tr>
 	<tr><th></th><th scope=col>&lt;chr&gt;</th><th scope=col>&lt;chr&gt;</th><th scope=col>&lt;int&gt;</th><th scope=col>&lt;int&gt;</th><th scope=col>&lt;chr&gt;</th></tr>
@@ -597,25 +597,34 @@ g <- graph_from_data_frame(edges_df,vertices=vertices_df)
 
 Visualization:
 ```R
-p <- ggraph(g,layout="dendrogram",circular=F) + 
-    geom_edge_diagonal(color="lightgray",width=0.25,alpha=0.75) +
-    geom_node_point(
-      aes(color=paul15_clusters_colors,size=group_size,alpha=1/group_size),
-      stroke=0
+cluster_color_map <- vertices_df %>%
+    dplyr::select(paul15_clusters, paul15_clusters_colors) %>%
+    distinct() %>%
+    tibble::deframe()
+
+p <- ggraph(g,layout="dendrogram",circular=T) + 
+    geom_edge_elbow(color="lightgray",width=0.5,alpha=0.75) +
+    geom_node_point(aes(color=paul15_clusters,size=group_size),stroke=0,alpha=0.5) +
+    scale_color_manual(
+        values = cluster_color_map,
+        name = "Label",
+        guide = guide_legend(override.aes=list(size=6)
+    )
     ) +
-    scale_color_identity(name="Label") +
-    scale_size(range=c(2,16),name="Group size",guide=F) +
+    scale_size(range=c(2,16),name="Group size") +
     coord_cartesian(clip="off") +
     theme_minimal() + theme(
-        legend.position="top",
-        legend.text = element_text(size=12),
+        legend.position="right",
+        legend.title = element_text(size=16),
+        legend.text = element_text(size=16),
         panel.grid = element_blank(),
         axis.text = element_blank(),
         axis.title = element_blank(),
         plot.title = element_text(size=16,hjust=0.5),
+        aspect.ratio=1
     )
-  
-options(repr.plot.width=32,repr.plot.height=6)
+
+options(repr.plot.width=16,repr.plot.height=16)
 print(p)
 ```
     
@@ -701,7 +710,7 @@ results_df = pd.DataFrame(results_dict)
 ```
 The `results_df` data frame looks like:
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -884,7 +893,7 @@ df = pd.DataFrame(results_dict)
 
 The resulting data frame:
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;

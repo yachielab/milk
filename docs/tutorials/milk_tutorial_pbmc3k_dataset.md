@@ -44,7 +44,7 @@ input_df = pd.DataFrame(adata.obsm["X_pca"],index=adata.obs_names)
 input_df.to_csv("input.csv",header=False)
 ```
 
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -319,7 +319,7 @@ edges_df = pd.read_csv(edges_path)
 ```
 
 Table with vertex (i.e., node) information:
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -408,7 +408,7 @@ Table with vertex (i.e., node) information:
 </div>
 
 Table including edge information:
-<div style="overflow-x: auto;">
+<div style="overflow-x: auto; margin-bottom: 20px;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
