@@ -2,18 +2,16 @@
 
 This section provides more detailed examples applying MILK to actual datasets and some of the downstream analyses that can be facilitated.
 
-> Coming soon!
-
-<!-- 
 ```{toctree}
 :maxdepth: 2
 
-tutorial.pbmc3k_dataset.network_visualization.md
-tutorial.mnist_dataset.downsampling_visualization.md
-tutorial.tfatlas_dataset.capturing_tf_induced_changes.md
+milk_tutorial_pbmc3k_dataset.md
+milk_tutorial_paul15_dataset.md
 ```
 
-## Use cases
+> Coming soon!
+
+<!-- ## Use cases
 
 ### 1. Generating information-rich subsamples
 

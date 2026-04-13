@@ -9,7 +9,11 @@ milk_app/
 build.jl
 build.txt
 data/
+<<<<<<< HEAD
 test/
 build/
 deployment/
 container/
+=======
+tutorial/
+>>>>>>> 20cac19 (documentation)
