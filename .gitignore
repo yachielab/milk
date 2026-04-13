@@ -5,15 +5,11 @@ precompilation.jl
 milk_app/
 .ipynb_checkpoints
 .DS_Store
-.readthedocs.yaml
 build.jl
 build.txt
 data/
-<<<<<<< HEAD
 test/
 build/
 deployment/
 container/
-=======
 tutorial/
->>>>>>> 20cac19 (documentation)
