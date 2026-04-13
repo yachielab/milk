@@ -143,15 +143,24 @@ I4,GAGGTTTGTAAGCC-1
 
 ## MILK heuristics
 
-To achieve scalability, MILK implements heuristics to circumvent exhaustive calculation of pairwise comparisons, which scales quadratically with the number of objects.
+Capturing the global landscape of populations typically requires computation of an all-all pairwise matrix, where the number of comparisons scales quadratically with the number of individuals. This does not scale well when datasets contain even tens to hundreds of thousands of individuals.
 
-Firstly, in the grouping process, each candidate object is only compared to the representatives of currently existing groups. The similarity threshold on the lower-extreme tail of the pairwise distribution ensures that only highly similar objects to the group representatives will merge.
+MILK implements a couple of heuristics to circumvent exhaustive calculation of pairwise comparisons.
 
-Secondly, the partitioning of data into computationally tractable subsets dictates which objects can be potentially grouped. As a consequence, globally optimal groupings may not be identified. This is particularly relevant when the total number of groups across all partitions is intractable (i.e., above the merge threshold). To mitigate this MILK applies a shared global similarity threshold across all partitions. Related to this, the order of objects is preserved throughout the entire MILK execution process. This preservation can be leveraged to impart "prior knowledge" based on metadata information (e.g., pre-sort by cell type labels) or allow a more structure shuffle randomization of objects across multiple trials of MILK.
+First, in the grouping process, each candidate object is only compared to the representatives of currently existing groups. While this significantly reduces the number of comparisons, it heavily relies on the representatives being *good*. However, by applying a similarity threshold on the lower-extreme tail of the pairwise distribution, MILK aims to maximize resolution, ensuring only highly similar objects to the group representatives will merge (e.g., exhibiting similarity to the 99.9th percentile).
+
+Partitioning of data into computationally tractable subsets is another heuristic that dictates which objects can be grouped. At scale, the likely consequence is that globally optimal groupings will not be identified. This is particularly relevant when the total number of groups across all partitions is intractable (i.e., above the merge threshold). MILK applies a shared global similarity threshold across all partitions, which should practically identify an upper bound to the number of possible groups at a given iteration. Related to this, the order of objects is preserved throughout the entire MILK execution process. This preservation can be leveraged to impart "prior knowledge" based on metadata information (e.g., pre-sort by cell type labels) or allow a more structure shuffle randomization of objects across multiple trials of MILK (planned extension).
+
+Calculation of pairwise similarity/distance also depends on the dimensionality of the data. In the context of high-dimensional biological measurements (e.g., transcriptomic profiles), I typically apply MILK to lower-dimensional embeddings of cells (e.g., principal components analysis, multi-dimensional scaling, non-negative matrix factorization, or latent embeddings from machine learning models). In addition to significantly speeding up computing speeds, it escapes from having to explicitly handly technical noise and sparsity (e.g., dropout) in pairwise comparisons (which is something that should to be addressed but out of the scope of MILK).
+
+Overall, while suboptimal, these decisions have shown practical ability to capture biologically meaningful relationships at scale. Given the fact that single-cell measurements are riddled with technical (dropout, batch effect, sampling bias), biological (stochasticity, transcriptional bursting), and computational biases (processing, methodological assumptions), exact preservation of pairwise relationships is often neither achievable nor necessary at the scale of millions to hundreds of millions of cells. In this setting, approximate representations that preserve global structure can remain highly informative (e.g., identify emergent properties), particularly when integrating across large and heterogeneous datasets.
 
 ## High Performance Computing mode
 
-For very large-scale datasets (i.e., on the order of tens to hundreds of millions of objects), MILK can be executed on HPC clusters. Given that partitioning of the entire population into tractable subsets becomes necessary with MILK at increasing dataset scales, parallelization by distributed computing processes (`-T` argument) becomes insufficient once there are thousands of partitions to process.
+The efficiency of the MILK algorithm is contingent on parallelization of computation on the tractable partitions of data. This is predominantly based on the number of CPUs that can be utilized during a MILK run (`-T` argument).
+
+For very large-scale datasets (i.e., on the order of tens to hundreds of millions of objects), MILK can be executed on HPC clusters. Given that partitioning of the entire population into tractable subsets becomes necessary with MILK at increasing dataset scales, parallelization by 
+distributed computing processes becomes insufficient once there are thousands of partitions to process.
 
 > For example, if you set a partition size of 10k cells (~50M pairwise comparisons), a dataset with 10M cells would generate 1k partitions.
 
@@ -159,7 +168,7 @@ The strategy to overcome this computational demand is to create batches of parti
 
 > The computing costs of 1k partitions can then be handled across 1000/50=20 jobs.
 
-Batch size can be set by specifying the `-b` argument.
+Batch size can be set by specifying the `-b` argument. Users should set this argument with the job allocation time in mind -- if job allocation is slower then it should be much higher to prevent it from becoming the bottleneck.
 
 Note that if the `--hpc-mode` flag is not specified in the `milk` call, then any HPC-specific arguments will be ignored.
 
