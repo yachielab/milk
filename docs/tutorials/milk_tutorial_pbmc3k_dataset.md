@@ -1,4 +1,4 @@
-# MILK tutorial: PBMC 3k dataset
+# MILK tutorial: Network visualization of MILK trees PBMC (3k dataset)
 
 This notebook provides a basic walkthrough of how MILK can be applied to scRNA-seq datasets. Specifically, using the processed 3k PBMCs from 10X Genomics obtained from the ["Preprocessing and clustering 3k PBMCs (legacy workflow)"](https://scanpy.readthedocs.io/en/stable/generated/scanpy.datasets.pbmc3k_processed.html), which is provided by Scanpy.
 
