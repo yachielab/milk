@@ -4,7 +4,6 @@ This notebook provides a basic walkthrough of how MILK can be applied to scRNA-s
 
 ## Importing libraries
 
-
 ```python
 import os
 import pathlib
@@ -15,14 +14,10 @@ import scanpy as sc
 
 ## Loading the dataset
 
-
 ```python
 adata = sc.datasets.pbmc3k_processed()
-adata
 ```
-
-
-
+The processed `anndata` object contains the following information:
 
     AnnData object with n_obs × n_vars = 2638 × 1838
         obs: 'n_genes', 'percent_mito', 'n_counts', 'louvain'
@@ -32,41 +27,24 @@ adata
         varm: 'PCs'
         obsp: 'distances', 'connectivities'
 
-
-
-
-```python
-adata.obsm["X_pca"].shape
-```
-
-
-
-
-    (2638, 50)
-
-
-
-
+Visualizing the processed dataset, colored by annotated cell types:
 ```python
 sc.pl.umap(adata,color="louvain")
 ```
 
-
-    
 ![png](milk_tutorial_pbmc3k_dataset_files/milk_tutorial_pbmc3k_dataset_6_0.png)
     
 
 ## MILK input
 
+We can apply MILK to the PCA embeddings (50 components) of the processed dataset.
+
 ```python
 input_df = pd.DataFrame(adata.obsm["X_pca"],index=adata.obs_names)
 input_df.to_csv("input.csv",header=False)
-display(input_df.head())
-print(input_df.shape)
 ```
 
-
-<div>
+<div style="overflow-x: auto;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -81,56 +59,6 @@ print(input_df.shape)
     }
 </style>
 <table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>0</th>
-      <th>1</th>
-      <th>2</th>
-      <th>3</th>
-      <th>4</th>
-      <th>5</th>
-      <th>6</th>
-      <th>7</th>
-      <th>8</th>
-      <th>9</th>
-      <th>...</th>
-      <th>40</th>
-      <th>41</th>
-      <th>42</th>
-      <th>43</th>
-      <th>44</th>
-      <th>45</th>
-      <th>46</th>
-      <th>47</th>
-      <th>48</th>
-      <th>49</th>
-    </tr>
-    <tr>
-      <th>index</th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
       <th>AAACATACAACCAC-1</th>
@@ -254,18 +182,12 @@ print(input_df.shape)
     </tr>
   </tbody>
 </table>
-<p>5 rows × 50 columns</p>
 </div>
-
-
-    (2638, 50)
-
 
 ## MILK execution
 
 ### Exporting MILK directory to PATH
 
-Assuming directory structure remains unchanged, and the current `tutorial` directory is a subdirectory of the parent `milk` directory.
 
 In terminal:
 ```bash
@@ -322,8 +244,7 @@ The following is an excerpt of the standard output:
     [ Info: 	Done!
 
 
-# Analysis of single-cell MILK embedding
-
+## Visualization of the single-cell MILK tree embedding
 
 ```python
 import numpy as np
@@ -349,7 +270,7 @@ from collections import defaultdict,deque
 gt.openmp_set_num_threads(1)
 ```
 
-These Python functions construct a biopython tree object from the MILK output files:
+These Python functions construct a BioPython tree object from the MILK output files:
 ```python
 def instantiate_node(node_id,info_dict):
     node = Clade(name=node_id)
@@ -365,11 +286,11 @@ def instantiate_node(node_id,info_dict):
 
 def construct_tree_object(vertices_df,edges_df):
     """
-    For each (parent) node, provide list of (children) subnodes (top is root; bottom refers to leaves)
+    For each (parent) node, provide list of (children) subnodes
+    (top is root; bottom refers to leaves)
     """
     descendents_dict = edges_df.groupby("source")["target"].apply(list).to_dict()
     max_iteration_df = vertices_df[vertices_df["iteration"] == vertices_df["iteration"].max()]
-    assert max_iteration_df.shape[0] == 1 # there must only be one group at end if MILK runs successfully
 
     root_id = max_iteration_df["node_id"].values[0]
     node_info_dict = vertices_df.set_index("node_id").to_dict(orient="index")
@@ -388,22 +309,17 @@ def construct_tree_object(vertices_df,edges_df):
     return Tree(root_node)
 ```
 
-
 ```python
+# MILK output directory contains a vertices and edges table
 vertices_path = os.path.join(".","milk.out","output","vertices.csv.gz")
-edges_path = os.path.join(".","milk.out","output","edges.csv.gz")
-
 vertices_df = pd.read_csv(vertices_path)
-display(vertices_df.head())
-print(vertices_df.shape)
 
+edges_path = os.path.join(".","milk.out","output","edges.csv.gz")
 edges_df = pd.read_csv(edges_path)
-display(edges_df.head())
-print(edges_df.shape)
 ```
 
-
-<div>
+Table with vertex (i.e., node) information:
+<div style="overflow-x: auto;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -491,12 +407,8 @@ print(edges_df.shape)
 </table>
 </div>
 
-
-    (7112, 8)
-
-
-
-<div>
+Table including edge information:
+<div style="overflow-x: auto;">
 <style scoped>
     .dataframe tbody tr th:only-of-type {
         vertical-align: middle;
@@ -548,40 +460,26 @@ print(edges_df.shape)
 </table>
 </div>
 
+Refer to the [documentation](https://milk-trees.readthedocs.io/en/latest/usage.html#output) for more information on the output.
 
-    (7111, 2)
-
-
-
+Creating the tree object:
 ```python
 tree = construct_tree_object(vertices_df,edges_df)
-tree.count_terminals()
 ```
-
-
-
-
-    2638
 
 Cell types annotated in this dataset:
 ```python
 labels = sorted(adata.obs["louvain"].unique())
-labels
 ```
 
-
-
-
-    ['B cells',
-     'CD14+ Monocytes',
-     'CD4 T cells',
-     'CD8 T cells',
-     'Dendritic cells',
-     'FCGR3A+ Monocytes',
-     'Megakaryocytes',
-     'NK cells']
-
-
+- B cells  
+- CD14+ Monocytes  
+- CD4 T cells  
+- CD8 T cells  
+- Dendritic cells  
+- FCGR3A+ Monocytes  
+- Megakaryocytes  
+- NK cells  
 
 
 ```python
@@ -645,11 +543,10 @@ g.vertex_properties["group_size"] = vertex_sizes
 g.edge_properties["pen_width"]    = edge_widths
 ```
 
-
+Scale force-directed network layout provided by the `graph_tool` Python library:
 ```python
 pos = gt.sfdp_layout(g,C=10)
 ```
-
 
 ```python
 gt.graph_draw(
@@ -664,23 +561,11 @@ gt.graph_draw(
     bg_color=None
 )
 ```
-
-
-    
 ![png](milk_tutorial_pbmc3k_dataset_files/milk_tutorial_pbmc3k_dataset_21_0.png)
     
 We can compare it back to the UMAP embeddings.
 ```python
 sc.pl.umap(adata,color="louvain")
 ```
-
-
     
 ![png](milk_tutorial_pbmc3k_dataset_files/milk_tutorial_pbmc3k_dataset_22_0.png)
-    
-
-
-
-```python
-
-```
