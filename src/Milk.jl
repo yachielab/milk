@@ -34,14 +34,47 @@ module Milk
     include("main.jl")
     export main
 
+    function _ping_workers(n_cpus::Integer)
+        workers_needed = max(n_cpus, 1) - nworkers()
+        if workers_needed <= 0
+            return 0
+        end
+    
+        get!(ENV, "JULIA_WORKER_TIMEOUT", "60")
+        for attempt in 1:3
+            try
+                addprocs(workers_needed)
+                return 0
+            catch e
+                @warn "bulk addproc attempt $attempt failed"
+            end
+        end
+        @warn "bulk addprocs failed; falling back to one-by-one worker startup"
+    
+        for i in 1:workers_needed
+            success = false
+            for attempt in 1:3
+                try
+                    newp = addprocs(1)
+                    success = true
+                    break
+                catch e
+                    @warn "addprocs(1) failed" worker_index=i attempt=attempt exception=(e, catch_backtrace())
+                    sleep(2 * attempt)
+                end
+            end
+            if !success
+                error("Failed to start worker $i after retries")
+            end
+        end
+    end
+
     function julia_main()::Cint
         try
             args = parse_arguments()
             n_cpus = args["threads"]
 
-            if nworkers() < n_cpus
-                addprocs(n_cpus - nworkers())
-            end
+            _ping_workers(n_cpus)
 
             for p in workers()
                 Distributed.remotecall_eval(Main, p, :(using Milk))
