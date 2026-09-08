@@ -99,6 +99,18 @@ Below is the minimal `milk` call in terminal:
 milk -i input.csv
 ```
 
+### Recommended parameters
+
+The two primary parameters to consider are (1) the similarity threshold parameter (`-t`, or `--percentile`) and (2) the pairwise comparison metric parameter (`-m`, or `--metric`). 
+
+We recommend setting the similarity threshold parameter to the lower tail distribution of pairwise distances. For large-scale single-cell transcriptomic profiling datasets, we recommend setting the threshold to the 0.1 or 0.01 percentile to maximize resolution at each recursive cycle.
+
+The following distance metrics are supported for pairwise comparisons:
+
+> 'cosine','euclidean','manhattan','hamming','jaccard','correlation'
+
+Note that all are distance metrics.
+
 ## Input
 
 The input file is an uncompressed CSV containing no headers. The first column denotes object IDs, which will be interpreted as strings. Subsequent columns contain the aligned high-dimensional values associated with each object (row).
@@ -147,13 +159,13 @@ Capturing the global landscape of populations typically requires computation of 
 
 MILK implements a couple of heuristics to circumvent exhaustive calculation of pairwise comparisons.
 
-First, in the grouping process, each candidate object is only compared to the representatives of currently existing groups. While this significantly reduces the number of comparisons, it heavily relies on the representatives being *good*. However, by applying a similarity threshold on the lower-extreme tail of the pairwise distribution, MILK aims to maximize resolution, ensuring only highly similar objects to the group representatives will merge (e.g., exhibiting similarity to the 99.9th percentile).
+First, in the grouping process, each candidate object is only compared to the representatives of currently existing groups. While this significantly reduces the number of comparisons, it heavily relies on the representatives being *good*. To ensure this, we have implemented a representative optimization step to be the medoid of each group, followed by a re-mapping stage. Additionally, by applying a similarity threshold on the lower-extreme tail of the pairwise distribution, MILK aims to maximize resolution, ensuring only highly similar objects to the group representatives will merge (e.g., exhibiting similarity to the 99.9th percentile).
 
-Partitioning of data into computationally tractable subsets is another heuristic that dictates which objects can be grouped. At scale, the likely consequence is that globally optimal groupings will not be identified. This is particularly relevant when the total number of groups across all partitions is intractable (i.e., above the merge threshold). MILK applies a shared global similarity threshold across all partitions, which should practically identify an upper bound to the number of possible groups at a given iteration. Related to this, the order of objects is preserved throughout the entire MILK execution process. This preservation can be leveraged to impart "prior knowledge" based on metadata information (e.g., pre-sort by cell type labels) or allow a more structure shuffle randomization of objects across multiple trials of MILK (planned extension).
+Partitioning of data into computationally tractable subsets is another heuristic that dictates which objects can be grouped. At scale, the likely consequence is that globally optimal groupings will not be identified. This is particularly relevant when the total number of groups across all partitions is intractable (i.e., above the merge threshold). MILK applies a shared global similarity threshold across all partitions to enforce an upper bound on the object similarity across partitions in a given iteration. Related to this, the order of objects is preserved throughout the entire MILK execution process. This preservation can be leveraged to impart "prior knowledge" based on metadata information (e.g., pre-sort by cell type labels) or allow a more structure shuffle randomization of objects across multiple trials of MILK (planned extension).
 
-Calculation of pairwise similarity/distance also depends on the dimensionality of the data. In the context of high-dimensional biological measurements (e.g., transcriptomic profiles), we typically recommend applying MILK to lower-dimensional embeddings of cells (e.g., principal components analysis, multi-dimensional scaling, non-negative matrix factorization, or latent embeddings from machine learning models). In addition to significantly speeding up computing speeds, it escapes from having to explicitly handle technical noise and sparsity (e.g., dropout) in pairwise comparisons -- this is something that should to be addressed but is out of the scope of MILK.
+Calculation of pairwise similarity/distance also depends on the dimensionality of the data. In the context of high-dimensional biological measurements (e.g., transcriptomic profiles), we typically recommend applying MILK to lower-dimensional embeddings of cells (e.g., principal components analysis, multi-dimensional scaling, non-negative matrix factorization, or latent embeddings from machine learning models). In addition to significantly speeding up computing speeds, it avoids having to explicitly handle technical noise and sparsity (e.g., dropout) in pairwise comparisons -- this is something that should to be addressed but is out of the scope of MILK.
 
-Overall, while suboptimal, these decisions have shown practical ability to capture biologically meaningful relationships at scale. Given the fact that single-cell measurements are riddled with technical (dropout, batch effect, sampling bias), biological (stochasticity, transcriptional bursting), and computational biases (processing, methodological assumptions), exact preservation of pairwise relationships is often neither achievable nor necessary at the scale of millions to hundreds of millions of cells. In this setting, approximate representations that preserve global structure can remain highly informative (e.g., identify emergent properties), particularly when integrating across large and heterogeneous datasets.
+Overall, while suboptimal, these decisions have shown practical ability to capture biologically meaningful relationships at scale. Given the many observations of single-cell sequencing measurements being riddled with technical (dropout, batch effect, sampling bias), biological (stochasticity, transcriptional bursting), and computational biases (processing, methodological assumptions), exact preservation of pairwise relationships is often neither achievable nor necessary at the scale of millions to hundreds of millions of cells. In these contexts, approximate representations that preserve global structure can remain highly informative (e.g., identify emergent properties), particularly when integrating across large and complex datasets.
 
 ## High Performance Computing mode
 

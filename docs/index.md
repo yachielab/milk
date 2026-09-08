@@ -20,7 +20,7 @@ It aims to be versatile in use cases: either by supporting tractable application
 MILK was developed with the following features in mind:
 
 - **Scalability**: it is an [out-of-core](https://en.wikipedia.org/wiki/External_memory_algorithm) algorithm that is tractable in the context of increasingly large-scale datasets (i.e., dataset scales on the order of tens to hundreds of millions of observations). It was implemented in a Julia, a high-performance programming language, and its implementation leverages distributed computing, as well as node clusters in high performance computing (HPC) environments.
-- **Generalizability**: recursive application of a data-driven threshold identifies and progressively merges highly-similar objects into groups. The threshold that defines similarity is a percentile on the lower extreme distribution of pairwise comparisons (e.g., 0.01<sup>st</sup> percentile), which is based on any user-specified pairwise comparison metric. As such, there is minimal parameter tuning, which should translate to reliable "out-of-the-box" performance.
+- **Generalizability**: recursive application of a data-driven threshold identifies and progressively merges highly-similar objects into groups. The threshold that defines similarity is a percentile on the lower tail distribution of pairwise comparisons (e.g., 0.01<sup>st</sup> percentile) and can be based on any user-specified pairwise comparison metric. As such, there is minimal parameter tuning, which should translate to reliable "out-of-the-box" performance.
 - **Interpretability**: access to comprehensive pairwise similarity comparisons contextualizes how meaningful measured effects are globally. Furthermore, the tree structure provides a simple but principled data structure for explaining observations.
 - **Multi-resolution**: the recursive process produces a hierarchical data structure at the resolution of individual objects. This granularity facilitates analyses investigating signal across resolutions; for example, multi-scale organization of biological systems.
 
@@ -44,4 +44,4 @@ For detailed use-cases of MILK, please see the [tutorials](tutorials/index.md).
 
 # Paper
 
-Stay tuned...
+Check out our [preprint on bioRxiv](https://www.biorxiv.org/content/10.64898/2026.08.31.747971v1) titled, "Global tree encoding of atlas-scale single-cell genomics", for more details.
