@@ -4,7 +4,7 @@
 
 # Paper
 
-Stay tuned...
+Check out our [preprint on bioRxiv](https://www.biorxiv.org/content/10.64898/2026.08.31.747971v1) titled, "Global tree encoding of atlas-scale single-cell genomics", for more details.
 
 # Documentation
 
@@ -31,7 +31,7 @@ By carrying forward only representatives, this pipeline can be applied recursive
 Users can run MILK without installing Julia on your system.
 
 > [!IMPORTANT]
-> Pre-release note: currently, the x86 (64-bit) build is provided1
+> Pre-release note: currently, only the x86 (64-bit) build is provided.
 
 Download the latest `milk` build from the [Latest Releases](https://github.com/yachielab/milk/releases) page.
 
@@ -76,7 +76,7 @@ milk -h
 
 # Quickstart
 
-MILK can be applied to any high-dimensional dataset. It expects an uncompressed `.CSV` file format as input, with the first column corresponding to object IDs.
+MILK can be applied to any high-dimensional dataset. It expects an uncompressed `.CSV` file format as input, with the first column corresponding to object IDs. Refer to the [documentation](https://milk-trees.readthedocs.io/en/latest/) for detailed explanations.
 ```
 milk -i input.csv
 ```
@@ -92,14 +92,6 @@ usage: milk -i INPUT-PATH [-n SAMPLE-SIZE] [-c CACHE-SIZE-LIMIT]
             [--job-account JOB-ACCOUNT] [--job-name JOB-NAME]
             [--job-memory JOB-MEMORY] [--job-time JOB-TIME]
             [--environment-path ENVIRONMENT-PATH]
-            [--group-stratification-mode]
-            [--stratification-input-dir STRATIFICATION-INPUT-DIR]
-            [--stratification-threshold STRATIFICATION-THRESHOLD]
-            [--stratification-percentile STRATIFICATION-PERCENTILE]
-            [--stratification-metric STRATIFICATION-METRIC]
-            [--stratification-cache-path STRATIFICATION-CACHE-PATH]
-            [--stratification-previous-groups-path STRATIFICATION-PREVIOUS-GROUPS-PATH]
-            [--stratification-output-dir STRATIFICATION-OUTPUT-DIR]
             [-h]
 
 A command-line tool to capture hierarchical relationships at scale.
