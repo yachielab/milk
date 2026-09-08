@@ -189,7 +189,7 @@ input_df.to_csv("input.csv",header=False)
 ### Exporting MILK directory to PATH
 
 
-In terminal:
+In terminal (expected runtime <2 min):
 ```bash
 milk -i input.csv
 ```

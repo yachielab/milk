@@ -103,13 +103,13 @@ milk -i input.csv
 
 The two primary parameters to consider are (1) the similarity threshold parameter (`-t`, or `--percentile`) and (2) the pairwise comparison metric parameter (`-m`, or `--metric`). 
 
-We recommend setting the similarity threshold parameter to the lower tail distribution of pairwise distances. For large-scale single-cell transcriptomic profiling datasets, we recommend setting the threshold to the 0.1 or 0.01 percentile to maximize resolution at each recursive cycle.
+We recommend setting the similarity threshold parameter to the lower tail distribution of pairwise distances. For example, in the context of large-scale single-cell transcriptomic datasets, we set the threshold to the 0.1 or 0.01 percentile to maximize resolution at each recursive cycle.
 
 The following distance metrics are supported for pairwise comparisons:
 
-> 'cosine','euclidean','manhattan','hamming','jaccard','correlation'
+> 'cosine', 'euclidean', 'manhattan', 'hamming', 'jaccard', 'correlation'
 
-Note that all are distance metrics.
+Note that all are *distance* metrics.
 
 ## Input
 

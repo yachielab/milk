@@ -267,7 +267,7 @@ The table below depicts an excerpt of the input table:
 
 ## Running MILK
 
-In terminal:
+In terminal (expected runtime <2 min):
 ```bash
 milk -i input.csv
 ```
