@@ -21,15 +21,26 @@ module FileHandling
         concatenating_aggregation,
         is_broken_symlink,
         clean_directory,
+        final_cleanup,
         write_values_as_txt,
-        attempt_to_cache_file
+        attempt_to_cache_file,
+        metadata_path
+
+
+    ########## inline helpers ##########
+    function metadata_path(groups_path)
+        return replace(groups_path, ".jsonl.gz" => ".metadata.tsv")
+    end
+    ####################################
 
     function load_groups_as_dictionary(path)
+
+        threshold = split(readline(metadata_path(path)),'\t')[5]
+
         groups = Dict{String,Vector{String}}()
         spread_dict = Dict{String,Any}()
         specificity_dict = Dict{String,Any}()
         resolution_dict = Dict{String,Any}()
-        thresholds = Vector{Float32}()
         open_file_read(path,gzip=true) do file
             for line in eachline(file)
                 info = JSON.parse(line)
@@ -38,12 +49,11 @@ module FileHandling
                 spread_dict[representative_id] = isempty(info["distances"]) ? nothing : mean(info["distances"]) 
                 specificity_dict[representative_id] = isempty(info["specificity"]) ? nothing : mean(info["specificity"]) 
                 resolution_dict[representative_id] = length(info["distances"])
-                push!(thresholds,info["threshold"])
             end
         end
         groups_dict = Dict(
             "groups" => groups,
-            "thresholds" => thresholds,
+            "threshold" => threshold,
             "spread" => spread_dict,
             "specificity" => specificity_dict,
             "resolution" => resolution_dict
@@ -51,27 +61,39 @@ module FileHandling
         return groups_dict
     end
 
+    function write_group_metadata(;path,label,stage,cache_label,compiled_label,threshold,n_input_objects,n_groups,n_comparisons)
+        open_file_write(metadata_path(path),gzip=false) do file
+            # columns: label, stage, cache, compiled, threshold, n_input_objects, n_groups, n_comparisons
+            fields = [label,stage,cache_label,compiled_label,threshold,n_input_objects,n_groups,n_comparisons]
+            println(file,join(fields,'\t'))
+        end
+    end
+
     function write_group_results(;path,label,stage,cache_label,compiled_label,n_input_objects,n_groups,groups,optimization_set,direct_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
-        """
-        """
+
+        write_group_metadata(
+            path=path,
+            label=label,
+            stage=stage,
+            cache_label=cache_label,
+            compiled_label=compiled_label,
+            threshold=threshold,
+            n_input_objects=n_input_objects,
+            n_groups=n_groups,
+            n_comparisons=n_comparisons
+        )
+
         open_file_write(path,gzip=true) do file
             for (representative_id,group) in groups
                 group_info = Dict(
                     "label" => label,
-                    "stage" => stage,
-                    "cache" => cache_label,
-                    "compiled" => compiled_label,
                     "representative_id" => representative_id,
                     "group" => group,
                     "direct_group_size" => direct_groupsize_dict[representative_id],
-                    "compiled_group_size" => length(group),
+                    "total_group_size" => length(group),
                     "distances" => distances_dict[representative_id],
                     "specificity" => specificity_dict[representative_id],
-                    "optimized" => (representative_id in optimization_set),
-                    "threshold" => threshold,
-                    "n_input_objects" => n_input_objects,
-                    "n_groups" => n_groups,
-                    "n_comparisons" => n_comparisons
+                    "optimized" => (representative_id in optimization_set)
                 )
                 JSON.print(file,group_info)
                 println(file)
@@ -248,6 +270,13 @@ module FileHandling
             if is_broken_symlink(path)
                 rm(path)
             end
+        end
+        return
+    end
+
+    function final_cleanup(output_dir)
+        for path in glob("*.csv",output_dir)
+            rm(path)
         end
         return
     end

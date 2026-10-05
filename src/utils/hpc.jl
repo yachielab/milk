@@ -108,7 +108,7 @@ module HPC
         # run(command)
         run(pipeline(command,stdout=devnull,stderr=devnull))
 
-        pattern = "$(label).*.groups.jsonl.gz"
+        pattern = "$(label).*.flag"
         poll_for_job_completion(pattern,partition_dir,n)
         return
     end

@@ -135,6 +135,8 @@ function main()
         @info "\nCompleted recursive downsampling procedure."
         flush(stdout)
 
+        final_cleanup(invariant_args["output-dir"])
+
         if args["skip-reconstruction"]
             @info "Skipping cell hierarchy reconstruction."
         else

@@ -6,7 +6,7 @@ module GroupAggregation
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative
     using ..FileHandling: load_values_as_list,load_input_array_as_dictionary,load_groups_as_dictionary,
                            write_dictionary_as_csv,write_group_results,open_file_write,open_file_read,
-                           attempt_to_load_cache
+                           attempt_to_load_cache,metadata_path
     using ..GroupStratification: stratification,stratification_predefined_medoids,compile_previous_groupings
     using ..RepresentativeOptimization: optimize_representatives
 
@@ -41,6 +41,11 @@ module GroupAggregation
             concatenated_path=concat_groups_path,
             gzip=true
         )
+        concatenate_files(
+            paths=sort(glob("*.groups.metadata.tsv",partition_dir)),
+            concatenated_path=metadata_path(concat_groups_path),
+            gzip=false
+        )
         return concat_representatives_path,concat_groups_path,n_groups
     end
 
@@ -67,6 +72,7 @@ module GroupAggregation
         else
             mv(concat_representatives_path,representatives_path)
             mv(concat_groups_path,groups_path)
+            mv(metadata_path(concat_groups_path),metadata_path(groups_path))
         end
         return representatives_path,groups_path
     end
@@ -137,5 +143,6 @@ module GroupAggregation
         )
         rm(concat_representatives_path)
         rm(concat_groups_path)
+        rm(metadata_path(concat_groups_path))
     end
 end

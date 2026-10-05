@@ -4,7 +4,7 @@ module HierarchicalReconstruction
     using JSON
     using Logging
     using Statistics
-    using ..FileHandling: open_file_write,open_file_read
+    using ..FileHandling: open_file_write,open_file_read,metadata_path
 
     export hierarchical_reconstruction
 
@@ -50,6 +50,7 @@ module HierarchicalReconstruction
 
                 groups_path = pathlist[1]
                 i = extract_iteration(groups_path)+1
+                threshold = split(readline(metadata_path(groups_path)),'\t')[5]
                 open_file_read(groups_path,gzip=true) do file
                     for line in eachline(file)
                         group_dict = JSON.parse(line)
@@ -67,9 +68,9 @@ module HierarchicalReconstruction
                         fields = [
                             group_id,
                             group_dict["representative_id"],
-                            group_dict["compiled_group_size"],
+                            group_dict["total_group_size"],
                             i,
-                            group_dict["threshold"],
+                            threshold,
                             get_spread(group_dict),
                             get_specificity(group_dict),
                             length(group_dict["distances"]) # resolution
@@ -80,6 +81,7 @@ module HierarchicalReconstruction
 
                 for groups_path in pathlist[2:end]
                     i = extract_iteration(groups_path)+1
+                    threshold = split(readline(metadata_path(groups_path)),'\t')[5]
                     open_file_read(groups_path,gzip=true) do file
                         for line in eachline(file)
                             group_dict = JSON.parse(line)
@@ -91,9 +93,9 @@ module HierarchicalReconstruction
                             fields = [
                                 group_id,
                                 group_dict["representative_id"],
-                                group_dict["compiled_group_size"],
+                                group_dict["total_group_size"],
                                 i,
-                                group_dict["threshold"],
+                                threshold,
                                 get_spread(group_dict),
                                 get_specificity(group_dict),
                                 length(group_dict["distances"]) # resolution

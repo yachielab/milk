@@ -41,7 +41,7 @@ module Milk
         end
     
         get!(ENV, "JULIA_WORKER_TIMEOUT", "60")
-        for attempt in 1:3
+        for attempt in 1:5
             try
                 addprocs(workers_needed)
                 return 0
@@ -53,7 +53,7 @@ module Milk
     
         for i in 1:workers_needed
             success = false
-            for attempt in 1:3
+            for attempt in 1:5
                 try
                     newp = addprocs(1)
                     success = true

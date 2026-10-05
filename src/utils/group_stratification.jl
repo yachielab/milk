@@ -4,7 +4,8 @@ module GroupStratification
     using Distributed
 
     using ..FileHandling: load_input_array_as_dictionary,load_groups_as_dictionary,attempt_to_load_cache,
-                          attempt_to_load_previous_groups,write_dictionary_as_csv,write_group_results,open_file_write
+                          attempt_to_load_previous_groups,write_dictionary_as_csv,write_group_results,open_file_write,
+                          metadata_path
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative_precomputed,
                                  map_object_to_representative,compute_pairwise_distance_matrix
     using ..RepresentativeOptimization: optimize_representatives
@@ -300,6 +301,7 @@ module GroupStratification
             if length(data_dict) == 0
                 open_file_write(representatives_path) do file end
                 open_file_write(groups_path) do file end
+                touch(metadata_path(groups_path))
             else
                 representative_id = collect(keys(data_dict))[1]
                 write_dictionary_as_csv(data_dict,representatives_path)
@@ -322,6 +324,7 @@ module GroupStratification
                 rm(path)
             end
             info = "\t[$label] 1 group (0 groups optimized); $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold ($threshold_label); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
+            touch(joinpath(output_dir,"$(label).flag"))
             return info
         else
     
@@ -381,6 +384,7 @@ module GroupStratification
                 n_comparisons=n_comparisons
             )
             rm(path)
+            touch(joinpath(output_dir,"$(label).flag"))
             return info
         end
     end
