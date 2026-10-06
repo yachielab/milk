@@ -8,28 +8,42 @@ module FileHandling
 
     export load_groups_as_dictionary,
         write_group_results,
-        write_dictionary_as_csv,
-        load_values_as_list,
-        load_input_array_as_dictionary,
         partition_input_file,
         batch_partitioned_files,
         partition_and_batch_input_files,
-        get_object_count,
         open_file_write,
         open_file_read,
-        concatenate_files,
-        concatenating_aggregation,
-        is_broken_symlink,
         clean_directory,
         final_cleanup,
         write_values_as_txt,
         attempt_to_cache_file,
-        metadata_path
+        metadata_path,
+        binary_path,
+        groupsize_path,
+        stream_binary_file,
+        load_milk_binaries,
+        write_milk_binaries,
+        convert_input_csv_to_binaries,
+        prepare_milk_input
 
 
     ########## inline helpers ##########
     function metadata_path(groups_path)
-        return replace(groups_path, ".jsonl.gz" => ".metadata.tsv")
+        return replace(groups_path, r"\.jsonl\.gz$" => ".metadata.tsv")
+    end
+
+    function binary_path(ids_path)
+        if !endswith(ids_path,".ids")
+            error("Expected a .ids path: $(ids_path)")
+        end
+        return replace(ids_path,r"\.ids$" => ".bin")
+    end
+
+    function groupsize_path(ids_path)
+        if !endswith(ids_path,".ids")
+            error("Expected a .ids path: $(ids_path)")
+        end
+        return replace(ids_path,r"\.ids$" => ".sizes")
     end
     ####################################
 
@@ -102,89 +116,102 @@ module FileHandling
         return
     end
 
-    function write_dictionary_as_csv(dict,path,gzip=false)
-        open_file_write(path,gzip=gzip) do handle
-            for (id,vec) in dict
-                write(handle,"$id,$(join(string.(vec),','))\n")
+    function stream_binary_file(f,ids_path)
+        n = countlines(ids_path)
+        if n == 0
+            return
+        end
+        d = div(filesize(binary_path(ids_path)),4*n) # vector dimensionality (number of Float32 per row)
+        vec = Vector{Float32}(undef,d)
+        open(binary_path(ids_path)) do bin_io
+            for id in eachline(ids_path)
+                read!(bin_io,vec)
+                f(id,vec)
             end
         end
     end
 
-    function load_values_as_list(path,dtype)
-        if dtype == "float"
-            vals = Vector{Float32}()
-            open(path,"r") do handle
-                for val in readlines(handle)
-                    push!(vals,parse(Float32,val))
-                end
-            end
-        elseif dtype == "integer"
-            vals = Vector{Int64}()
-            open(path,"r") do handle
-                for val in readlines(handle)
-                    push!(vals,parse(Int,val))
-                end
-            end   
-        elseif dtype == "string"
-            vals = Vector{String}()
-            open(path,"r") do handle
-                for val in readlines(handle)
-                    push!(vals,val)
-                end
-            end
-        else
-            throw("Unrecognized data type specified!")
+    function load_milk_binaries(ids_path)
+        data_dict = Dict{String,Vector{Float32}}()
+        stream_binary_file(ids_path) do id,vec
+            data_dict[id] = copy(vec)
         end
-        return vals
+        groupsize_dict = Dict{String,Int}()
+        for line in eachline(groupsize_path(ids_path))
+            id,size = split(line,",")
+            groupsize_dict[id] = parse(Int,size)
+        end
+        return data_dict,groupsize_dict
     end
 
-    function load_input_array_as_dictionary(path)
-        input_dict = Dict{String,Vector{Float32}}()
-        open_file_read(path,gzip=false) do handle
-            for line in readlines(handle)
-                entry = split(line,",")
-                id = entry[1]
-                # vec = parse.(Float32,entry[2:end])
-                vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
-                if !any(isnan,vec) # filter row if it contains any NaN32
-                    input_dict[id] = vec
+    function write_milk_binaries(data_dict,groupsize_dict,ids_path)
+        open(ids_path,"w") do id_io
+            open(binary_path(ids_path),"w") do binary_io
+                open(groupsize_path(ids_path),"w") do sizes_io
+                    for (id,vec) in data_dict
+                        println(id_io,id)
+                        write(binary_io,vec)
+                        println(sizes_io,id,",",groupsize_dict[id])
+                    end
                 end
             end
         end
-        return input_dict
+    end
+
+    function convert_input_csv_to_binaries(csv_path,ids_path)
+        nan_count = 0
+        open(ids_path,"w") do id_io
+            open(binary_path(ids_path),"w") do binary_io
+                open(groupsize_path(ids_path),"w") do sizes_io
+                    for line in eachline(csv_path)
+                        entry = split(line,",")
+                        vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
+                        if any(isnan,vec)
+                            nan_count += 1
+                            continue
+                        end
+                        println(id_io,entry[1])
+                        write(binary_io,vec)
+                        println(sizes_io,entry[1],",",1)
+                    end
+                end
+            end
+        end
+        if nan_count > 0
+            @warn "Dropped $(nan_count) rows with missing values from $(csv_path)"
+        end
     end
 
     function partition_input_file(input_path,label,invariant_args)
-
         partition_dir = joinpath(invariant_args["output-dir"],"$(label).split")
-        mkpath(partition_dir) # does not throw error if it exists
+        mkpath(partition_dir)
 
         function get_partitioned_input_path(p)
             partition_label = "partition_$(lpad(string(p),8,'0'))"
-            return joinpath(partition_dir, "$(label).$(partition_label).csv")
+            return joinpath(partition_dir,"$(label).$(partition_label).ids")
         end
 
         p = 1
-        buffer = []
-        open_file_read(input_path,gzip=false) do instream
-            for line in eachline(instream)
-                if length(buffer) == invariant_args["partition-size"]
-                    partitioned_input_path = get_partitioned_input_path(p)
-                    open_file_write(partitioned_input_path,gzip=false) do outstream
-                        write(outstream,join(buffer,"\n")*"\n")
-                    end
-                    empty!(buffer)
+        data_dict = Dict{String,Vector{Float32}}()
+        groupsize_dict = Dict{String,Int}()
+        open(groupsize_path(input_path)) do sizes_io
+            stream_binary_file(input_path) do id,vec
+                size_id,size = split(readline(sizes_io),",")
+                if size_id != id
+                    error("Row mismatch between $(input_path) and its sizes file: $(id) vs $(size_id)")
+                end
+                data_dict[id] = copy(vec)
+                groupsize_dict[id] = parse(Int,size)
+                if length(data_dict) == invariant_args["partition-size"]
+                    write_milk_binaries(data_dict,groupsize_dict,get_partitioned_input_path(p))
+                    empty!(data_dict)
+                    empty!(groupsize_dict)
                     p += 1
                 end
-                push!(buffer,line)
             end
         end
-
-        if !isempty(buffer)
-            partitioned_input_path = get_partitioned_input_path(p)
-            open_file_write(partitioned_input_path,gzip=false) do outstream
-                write(outstream,join(buffer,"\n")*"\n")
-            end
+        if !isempty(data_dict)
+            write_milk_binaries(data_dict,groupsize_dict,get_partitioned_input_path(p))
         end
         return partition_dir
     end
@@ -196,7 +223,7 @@ module FileHandling
             return joinpath(partition_dir,"$(label).$(batch_label).work")
         end
 
-        pattern = "*.csv"
+        pattern = "*.ids"
         paths = sort(glob(pattern,partition_dir))
 
         files = []
@@ -210,6 +237,8 @@ module FileHandling
                     updated_path = joinpath(batch_dir,basename(path))
                     push!(files,updated_path)
                     mv(path,updated_path)
+                    mv(binary_path(path),binary_path(updated_path))
+                    mv(groupsize_path(path),groupsize_path(updated_path))
                 end
             end
         else
@@ -220,6 +249,8 @@ module FileHandling
                 updated_path = joinpath(batch_dir,basename(path))
                 push!(files,updated_path)
                 mv(path,updated_path)
+                mv(binary_path(path),binary_path(updated_path))
+                mv(groupsize_path(path),groupsize_path(updated_path))
             end
         end
         return files,batches
@@ -231,10 +262,6 @@ module FileHandling
         return partition_dir,input_paths,batch_dirs
     end
 
-    function get_object_count(path)
-        command = pipeline(`cat $path`,`wc -l`)
-        return parse(Int,strip(read(command,String)))
-    end
 
     function open_file_write(f::Function, path::AbstractString; gzip::Bool=true)
         stream = gzip ? GzipCompressorStream(open(path,"w")) : open(path,"w")
@@ -254,28 +281,26 @@ module FileHandling
         end
     end
 
-    function is_broken_symlink(path)
-        return islink(path) && !isfile(path)
-    end
-
     function clean_directory(work_dir,partition_dir,exclusion_set)
         rm(partition_dir,recursive=true)
-        pattern = "*.representatives.csv"
-        for path in glob(pattern,work_dir)
+        for path in glob("*.representatives.ids",work_dir)
             if path in exclusion_set continue end
             rm(path)
+            rm(binary_path(path))
+            rm(groupsize_path(path))
         end
-        pattern = "*.input.csv"
-        for path in glob(pattern,work_dir)
-            if is_broken_symlink(path)
+        for path in glob("*.input.ids",work_dir)
+            if islink(path) && !isfile(path) # broken symlink: its representatives were deleted above
                 rm(path)
+                rm(binary_path(path))
+                rm(groupsize_path(path))
             end
         end
         return
     end
 
     function final_cleanup(output_dir)
-        for path in glob("*.csv",output_dir)
+        for path in [glob("*.ids",output_dir); glob("*.bin",output_dir); glob("*.sizes",output_dir)]
             rm(path)
         end
         return
@@ -302,7 +327,7 @@ module FileHandling
     function attempt_to_load_cache(path)
         cache_dict = nothing
         if !isnothing(path) && isfile(path)
-            cache_dict = load_input_array_as_dictionary(path)
+            cache_dict,_ = load_milk_binaries(path)
         end
         return cache_dict
     end
@@ -314,6 +339,29 @@ module FileHandling
             previous_groups = previous_groups_dict["groups"]
         end
         return previous_groups
+    end
+
+    function prepare_milk_input(csv_path)
+        milk_input_dir = joinpath(dirname(csv_path),"milk_input")
+        file_label = replace(basename(csv_path),r"\.csv$" => "")
+
+        ids_path = joinpath(milk_input_dir,"$(file_label).ids")
+        source_path = joinpath(milk_input_dir,"$(file_label).source")
+        source = "$(filesize(csv_path)),$(mtime(csv_path))"
+        if isfile(source_path) && read(source_path,String) == source
+            @info "Using existing MILK binaries: $(ids_path)"
+            return ids_path
+        end
+
+        @info "Converting $(csv_path) to MILK binaries: $(ids_path)"
+        mkpath(milk_input_dir)
+        tmp_ids_path = joinpath(milk_input_dir,"$(file_label).tmp_$(getpid()).ids")
+        convert_input_csv_to_binaries(csv_path,tmp_ids_path)
+        mv(tmp_ids_path,ids_path,force=true)
+        mv(binary_path(tmp_ids_path),binary_path(ids_path),force=true)
+        mv(groupsize_path(tmp_ids_path),groupsize_path(ids_path),force=true)
+        write(source_path,source)
+        return ids_path
     end
 
 end

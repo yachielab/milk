@@ -3,9 +3,9 @@ module GroupStratification
     using Glob
     using Distributed
 
-    using ..FileHandling: load_input_array_as_dictionary,load_groups_as_dictionary,attempt_to_load_cache,
-                          attempt_to_load_previous_groups,write_dictionary_as_csv,write_group_results,open_file_write,
-                          metadata_path
+    using ..FileHandling: attempt_to_load_cache,load_milk_binaries,write_milk_binaries,
+                          attempt_to_load_previous_groups,write_group_results,open_file_write,
+                          metadata_path,binary_path,groupsize_path
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative_precomputed,
                                  map_object_to_representative,compute_pairwise_distance_matrix
     using ..RepresentativeOptimization: optimize_representatives
@@ -182,7 +182,7 @@ module GroupStratification
 
         @info "Initiating the pmap distributed call"
         flush(stdout)
-        pathlist = sort(glob("*.csv",input_dir))
+        pathlist = sort(glob("*.ids",input_dir))
         info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,cache_dict,previous_groups,output_dir), pathlist)
 
         if verbose
@@ -282,7 +282,7 @@ module GroupStratification
 
     function stratification_process_distributed_execution(path,threshold,perc,distance_function,cache_dict,previous_groups,output_dir)
 
-        label = replace(basename(path),".csv" => "")
+        label = replace(basename(path),r"\.ids$" => "")
 
         start_time = time()
 
@@ -294,17 +294,17 @@ module GroupStratification
         end
 
         n_comparisons = 0
-        data_dict = load_input_array_as_dictionary(path)
+        data_dict,groupsize_dict = load_milk_binaries(path)
         if length(data_dict) < 2
-            representatives_path = joinpath(output_dir,"$(label).representatives.csv")
+            representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
             if length(data_dict) == 0
-                open_file_write(representatives_path) do file end
+                write_milk_binaries(Dict{String,Vector{Float32}}(),Dict{String,Int}(),representatives_path)
                 open_file_write(groups_path) do file end
                 touch(metadata_path(groups_path))
             else
                 representative_id = collect(keys(data_dict))[1]
-                write_dictionary_as_csv(data_dict,representatives_path)
+                write_milk_binaries(data_dict,groupsize_dict,representatives_path)
                 write_group_results(
                     path=groups_path,
                     label=label,
@@ -322,6 +322,8 @@ module GroupStratification
                     n_comparisons=n_comparisons
                 )
                 rm(path)
+                rm(binary_path(path))
+                rm(groupsize_path(path))
             end
             info = "\t[$label] 1 group (0 groups optimized); $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold ($threshold_label); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
             touch(joinpath(output_dir,"$(label).flag"))
@@ -364,9 +366,9 @@ module GroupStratification
 
             info = "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t ($threshold_label); $n_comparisons comparisons ($(nworkers()) CPU(s); $(cache_label)$(previous_groups_label)); runtime: $(elapsed_time) min"
 
-            representatives_path = joinpath(output_dir,"$(label).representatives.csv")
+            representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
-            write_dictionary_as_csv(optimized_dict,representatives_path)
+            write_milk_binaries(optimized_dict,Dict(id => 1 for id in keys(optimized_dict)),representatives_path)
             write_group_results(
                 path=groups_path,
                 label=label,
@@ -384,6 +386,8 @@ module GroupStratification
                 n_comparisons=n_comparisons
             )
             rm(path)
+            rm(binary_path(path))
+            rm(groupsize_path(path))
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         end

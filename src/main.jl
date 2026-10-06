@@ -21,6 +21,13 @@ function main()
         @info "MILK"
         flush(stdout)
 
+        absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
+        milk_input_path = prepare_milk_input(absolute_input_path)
+        if args["convert-input-only"]
+            @info "Conversion complete (--convert-only): $(milk_input_path)"
+            return
+        end
+    
         @info "Using $(nworkers()) worker(s) for distributed processing"
 
         log_args(args)
@@ -37,7 +44,7 @@ function main()
         mkdir(invariant_args["output-dir"])
 
         if isnothing(args["label"])
-            label = replace(basename(args["input-path"]),".csv" => "")
+            label = replace(basename(args["input-path"]),r"\.(csv|ids)$" => "")
         else
             label = args["label"]
         end
@@ -48,16 +55,14 @@ function main()
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
-        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
-        absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
-        if islink(input_path)
-            @warn "Symlink already exists! ($input_path)"
-            rm(input_path)
-        end
-        symlink(absolute_input_path,input_path)
+        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
+        @info "Using existing MILK binaries: $(absolute_input_path)"
+        symlink(milk_input_path,input_path)
+        symlink(binary_path(milk_input_path),binary_path(input_path))
+        symlink(groupsize_path(milk_input_path),groupsize_path(input_path))
 
-        n = get_object_count(input_path)
-
+        n = countlines(input_path)
+    
         @info "Iteration: $i ($n objects)"
         flush(stdout)
 
@@ -82,7 +87,7 @@ function main()
                 invariant_args=invariant_args
             )
 
-            n = get_object_count(representatives_path)
+            n = countlines(representatives_path)
             if isnothing(cache_path)
                 cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
             end
@@ -109,8 +114,10 @@ function main()
                 @info "Iteration: $i ($n objects)"
                 flush(stdout)
 
-                input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
+                input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
                 symlink(representatives_path,input_path)
+                symlink(binary_path(representatives_path),binary_path(input_path))
+                symlink(groupsize_path(representatives_path),groupsize_path(input_path))
 
                 representatives_path,groups_path = recursive_processing_framework(
                     input_path=input_path,
@@ -120,7 +127,7 @@ function main()
                     invariant_args=invariant_args
                 )
                 # previous_groups_path = groups_path
-                n = get_object_count(representatives_path)
+                n = countlines(representatives_path)
                 if isnothing(cache_path)
                     cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
                 end

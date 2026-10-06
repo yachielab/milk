@@ -4,7 +4,7 @@ module PairwiseComparisons
     using Distances
     using Distributed
 
-    using ..FileHandling: load_input_array_as_dictionary
+    using ..FileHandling: load_milk_binaries
 
     export map_distance_function,
            compute_pairwise_distance_matrix,
@@ -83,7 +83,7 @@ module PairwiseComparisons
     end
 
     function determine_percentile_threshold_process(input_path,metric,p)
-        data_dict = load_input_array_as_dictionary(input_path)
+        data_dict,_ = load_milk_binaries(input_path)
         if length(data_dict) < 2
             return nothing
         end

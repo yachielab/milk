@@ -10,8 +10,8 @@ module Utils
     using ..GroupAggregation: group_aggregation
     using ..GroupStratification: stratification_predefined_medoids_precomputed_distances,stratification_precomputed_distances,
                                 partitioned_group_stratification,stratification_process_direct_execution
-    using ..FileHandling: partition_and_batch_input_files,clean_directory,load_input_array_as_dictionary,
-                          write_dictionary_as_csv,write_group_results,attempt_to_load_cache,attempt_to_load_previous_groups
+    using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
+                          write_group_results,attempt_to_load_cache,attempt_to_load_previous_groups
 
     export recursive_processing_framework,recursive_processing_direct_execution
 
@@ -78,7 +78,7 @@ module Utils
 
         distance_function = map_distance_function(invariant_args["metric"])
 
-        data_dict = load_input_array_as_dictionary(representatives_path)
+        data_dict,_ = load_milk_binaries(representatives_path)
         n = length(data_dict)
 
         cache_dict = attempt_to_load_cache(cache_path)

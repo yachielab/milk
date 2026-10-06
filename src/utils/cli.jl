@@ -58,6 +58,9 @@ module CLI
             "--skip-reconstruction"
                 action = :store_true
                 help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
+            "--convert-input-only"
+                action = :store_true
+                help = "Convert the input CSV to MILK's binary format (.ids/.bin/.sizes next to the CSV) and exit."
             "--output-dir","-o"
                 arg_type = String
                 default = "./milk.out"

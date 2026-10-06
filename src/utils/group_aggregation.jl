@@ -4,48 +4,34 @@ module GroupAggregation
     using Logging
 
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative
-    using ..FileHandling: load_values_as_list,load_input_array_as_dictionary,load_groups_as_dictionary,
-                           write_dictionary_as_csv,write_group_results,open_file_write,open_file_read,
-                           attempt_to_load_cache,metadata_path
+    using ..FileHandling: load_groups_as_dictionary,load_milk_binaries,write_milk_binaries,
+                           write_group_results,attempt_to_load_cache,metadata_path,binary_path,groupsize_path
     using ..GroupStratification: stratification,stratification_predefined_medoids,compile_previous_groupings
     using ..RepresentativeOptimization: optimize_representatives
 
     export group_aggregation
 
-    function concatenate_files(;paths,concatenated_path,gzip=false)
-        n_groups = 0
-        open_file_write(concatenated_path,gzip=gzip) do outstream
+    function concatenate_files(;paths,concatenated_path)
+        open(concatenated_path,"w") do io
             for path in paths
-                open_file_read(path,gzip=gzip) do instream
-                    for line in eachline(instream)
-                        println(outstream,line)
-                        n_groups += 1
-                    end
-                end
+                write(io,read(path))
                 rm(path)
             end
         end
-        return n_groups
     end
 
     function concatenating_aggregation(label,partition_dir,invariant_args)
-        concat_representatives_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.representatives.csv")
-        concatenate_files(
-            paths=sort(glob("*.representatives.csv",partition_dir)),
-            concatenated_path=concat_representatives_path,
-            gzip=false
-        )
+        concat_representatives_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.representatives.ids")
+        representatives_paths = sort(glob("*.representatives.ids",partition_dir))
+        concatenate_files(paths=representatives_paths,concatenated_path=concat_representatives_path)
+        concatenate_files(paths=binary_path.(representatives_paths),concatenated_path=binary_path(concat_representatives_path))
+        concatenate_files(paths=groupsize_path.(representatives_paths),concatenated_path=groupsize_path(concat_representatives_path))
+
         concat_groups_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.groups.jsonl.gz")
-        n_groups = concatenate_files(
-            paths=sort(glob("*.groups.jsonl.gz",partition_dir)),
-            concatenated_path=concat_groups_path,
-            gzip=true
-        )
-        concatenate_files(
-            paths=sort(glob("*.groups.metadata.tsv",partition_dir)),
-            concatenated_path=metadata_path(concat_groups_path),
-            gzip=false
-        )
+        concatenate_files(paths=sort(glob("*.groups.jsonl.gz",partition_dir)),concatenated_path=concat_groups_path)
+        concatenate_files(paths=sort(glob("*.groups.metadata.tsv",partition_dir)),concatenated_path=metadata_path(concat_groups_path))
+        n_groups = sum(parse(Int,split(line,'\t')[7]) for line in eachline(metadata_path(concat_groups_path)); init=0)
+
         return concat_representatives_path,concat_groups_path,n_groups
     end
 
@@ -57,7 +43,7 @@ module GroupAggregation
         @info "\t$n_groups groups after concatenation across partitioned results."
         flush(stdout)
         
-        representatives_path = joinpath(invariant_args["output-dir"],"$(label).representatives.csv")
+        representatives_path = joinpath(invariant_args["output-dir"],"$(label).representatives.ids")
         groups_path = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
         if n_groups <= invariant_args["merge-threshold"]
             stratifying_aggregation(
@@ -71,6 +57,8 @@ module GroupAggregation
             )
         else
             mv(concat_representatives_path,representatives_path)
+            mv(binary_path(concat_representatives_path),binary_path(representatives_path))
+            mv(groupsize_path(concat_representatives_path),groupsize_path(representatives_path))
             mv(concat_groups_path,groups_path)
             mv(metadata_path(concat_groups_path),metadata_path(groups_path))
         end
@@ -82,7 +70,7 @@ module GroupAggregation
         start_time = time()
         distance_function = map_distance_function(metric)
 
-        concat_representatives_dict = load_input_array_as_dictionary(concat_representatives_path)
+        concat_representatives_dict,_ = load_milk_binaries(concat_representatives_path)
         concat_groups_dict = load_groups_as_dictionary(concat_groups_path)
 
         concat_groups = concat_groups_dict["groups"]
@@ -122,9 +110,10 @@ module GroupAggregation
         @info "\t[MERGE: $label] $G groups ($g groups optimized); $n objects; threshold: $t; cache: $cache_label; runtime: $(round(end_time-start_time,digits=2)) seconds"
         flush(stdout)
 
-        representatives_path = joinpath(output_dir,"$label.representatives.csv")
+        representatives_path = joinpath(output_dir,"$label.representatives.ids")
         groups_path = joinpath(output_dir,"$label.groups.jsonl.gz")
-        write_dictionary_as_csv(optimized_dict,representatives_path)
+        groupsize_dict = Dict(id => 1 for id in keys(optimized_dict))
+        write_milk_binaries(optimized_dict,groupsize_dict,representatives_path)
         write_group_results(
             path=groups_path,
             label=label,
@@ -143,6 +132,8 @@ module GroupAggregation
         )
         rm(concat_representatives_path)
         rm(concat_groups_path)
+        rm(binary_path(concat_representatives_path))
+        rm(groupsize_path(concat_representatives_path))
         rm(metadata_path(concat_groups_path))
     end
 end
