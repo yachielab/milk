@@ -288,7 +288,6 @@ module GroupStratification
 
         if isnothing(threshold)
             threshold_label = "computed"
-            threshold = threshold_
         else
             threshold_label = "predefined"
         end

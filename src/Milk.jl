@@ -19,7 +19,7 @@ module Milk
     include("utils/group_aggregation.jl")
     include("utils/hierarchical_reconstruction.jl")
     include("utils/cli.jl")
-    include("utils/utils.jl")
+    include("utils/recursion.jl")
 
     using .FileHandling
     using .PairwiseComparisons
@@ -29,7 +29,7 @@ module Milk
     using .HierarchicalReconstruction
     using .CLI
     using .HPC
-    using .Utils
+    using .Recursion
 
     include("main.jl")
     export main

@@ -1,4 +1,4 @@
-module Utils
+module Recursion
 
     using Random
     using Logging
