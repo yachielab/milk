@@ -44,7 +44,7 @@ function main()
         mkdir(invariant_args["output-dir"])
 
         if isnothing(args["label"])
-            label = replace(basename(args["input-path"]),r"\.(csv|ids)$" => "")
+            label = replace(basename(args["input-path"]),r"\.csv(\.gz)?$" => "")
         else
             label = args["label"]
         end
@@ -56,7 +56,6 @@ function main()
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
         input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
-        @info "Using existing MILK binaries: $(absolute_input_path)"
         symlink(milk_input_path,input_path)
         symlink(binary_path(milk_input_path),binary_path(input_path))
         symlink(groupsize_path(milk_input_path),groupsize_path(input_path))

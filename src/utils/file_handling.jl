@@ -163,16 +163,18 @@ module FileHandling
         open(ids_path,"w") do id_io
             open(binary_path(ids_path),"w") do binary_io
                 open(groupsize_path(ids_path),"w") do sizes_io
-                    for line in eachline(csv_path)
-                        entry = split(line,",")
-                        vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
-                        if any(isnan,vec)
-                            nan_count += 1
-                            continue
+                    open_file_read(csv_path,gzip=endswith(csv_path,".gz")) do instream
+                        for line in eachline(instream)
+                            entry = split(line,",")
+                            vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
+                            if any(isnan,vec)
+                                nan_count += 1
+                                continue
+                            end
+                            println(id_io,entry[1])
+                            write(binary_io,vec)
+                            println(sizes_io,entry[1],",",1)
                         end
-                        println(id_io,entry[1])
-                        write(binary_io,vec)
-                        println(sizes_io,entry[1],",",1)
                     end
                 end
             end
@@ -343,7 +345,7 @@ module FileHandling
 
     function prepare_milk_input(csv_path)
         milk_input_dir = joinpath(dirname(csv_path),"milk_input")
-        file_label = replace(basename(csv_path),r"\.csv$" => "")
+        file_label = replace(basename(csv_path),r"\.csv(\.gz)?$" => "")
 
         ids_path = joinpath(milk_input_dir,"$(file_label).ids")
         source_path = joinpath(milk_input_dir,"$(file_label).source")
@@ -353,7 +355,9 @@ module FileHandling
             return ids_path
         end
 
-        @info "Converting $(csv_path) to MILK binaries: $(ids_path)"
+        @info "Converting input file to MILK binaries: $(ids_path)"
+        @info "\tInput: $(csv_path)"
+        @info "\tBinaries: $(milk_input_dir)"
         mkpath(milk_input_dir)
         tmp_ids_path = joinpath(milk_input_dir,"$(file_label).tmp_$(getpid()).ids")
         convert_input_csv_to_binaries(csv_path,tmp_ids_path)

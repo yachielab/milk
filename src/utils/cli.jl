@@ -12,7 +12,7 @@ module CLI
             "--input-path","-i" 
                 arg_type = String
                 required = true
-                help = "Uncompressed CSV file. First column corresponds to object IDs (e.g., cell barcode). No header"
+                help = "CSV file (uncompressed or gzipped). First column corresponds to object IDs (e.g., cell barcode). No header"
             "--sample-size","-n"
                 arg_type = Int
                 default = 1
