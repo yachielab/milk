@@ -91,7 +91,7 @@ function main()
                 if n <= args["partition-size"]
                     recursive_processing_direct_execution(
                         representatives_path=representatives_path,
-                        iteration=i,
+                        iteration=i+1,
                         label=label,
                         cache_path=cache_path,
                         invariant_args=invariant_args
