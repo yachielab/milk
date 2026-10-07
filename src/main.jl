@@ -10,7 +10,6 @@ function main()
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
             cache_path=args["stratification-cache-path"],
-            previous_groups_path=args["stratification-previous-groups-path"],
             verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]
         )
@@ -21,10 +20,16 @@ function main()
         @info "MILK"
         flush(stdout)
 
+        if isnothing(args["label"])
+            label = replace(basename(args["input-path"]),r"\.csv(\.gz)?$" => "")
+        else
+            label = args["label"]
+        end
+
         absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
-        milk_input_path = prepare_milk_input(absolute_input_path)
+        milk_input_path = prepare_milk_input(absolute_input_path,label)
         if args["convert-input-only"]
-            @info "Conversion complete (--convert-only): $(milk_input_path)"
+            @info "Conversion complete (--convert-input-only): $(milk_input_path)"
             return
         end
     
@@ -43,14 +48,7 @@ function main()
         end
         mkdir(invariant_args["output-dir"])
 
-        if isnothing(args["label"])
-            label = replace(basename(args["input-path"]),r"\.csv(\.gz)?$" => "")
-        else
-            label = args["label"]
-        end
-
         cache_path = nothing
-        previous_groups_path = nothing
         i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
@@ -74,7 +72,6 @@ function main()
                 iteration=i,
                 label=label,
                 cache_path=cache_path,
-                previous_groups_path=previous_groups_path,
                 invariant_args=invariant_args
             )
         else
@@ -82,17 +79,12 @@ function main()
                 input_path=input_path,
                 label=full_label,
                 cache_path=nothing,
-                previous_groups_path=nothing,
                 invariant_args=invariant_args
             )
 
             n = countlines(representatives_path)
             if isnothing(cache_path)
                 cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-            end
-            # previous_groups_path = groups_path
-            if n <= args["cache-size-limit"]
-                previous_groups_path = groups_path
             end
 
             while n > args["sample-size"]
@@ -102,7 +94,6 @@ function main()
                         iteration=i,
                         label=label,
                         cache_path=cache_path,
-                        previous_groups_path=previous_groups_path,
                         invariant_args=invariant_args
                     )
                     break
@@ -122,16 +113,11 @@ function main()
                     input_path=input_path,
                     label=full_label,
                     cache_path=cache_path,
-                    previous_groups_path=previous_groups_path,
                     invariant_args=invariant_args
                 )
-                # previous_groups_path = groups_path
                 n = countlines(representatives_path)
                 if isnothing(cache_path)
                     cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-                end
-                if n <= args["cache-size-limit"]
-                    previous_groups_path = groups_path
                 end
                 @info "\t$n objects after recursive iteration."
                 flush(stdout)

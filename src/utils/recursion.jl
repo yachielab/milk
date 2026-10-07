@@ -11,12 +11,12 @@ module Recursion
     using ..GroupStratification: stratification_predefined_medoids_precomputed_distances,stratification_precomputed_distances,
                                 partitioned_group_stratification,stratification_process_direct_execution
     using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
-                          write_group_results,attempt_to_load_cache,attempt_to_load_previous_groups
+                          write_group_results,attempt_to_load_cache
 
     export recursive_processing_framework,recursive_processing_direct_execution
 
 
-    function recursive_processing_framework(;input_path,label,cache_path,previous_groups_path,invariant_args)
+    function recursive_processing_framework(;input_path,label,cache_path,invariant_args)
 
         partition_dir,files,batches = partition_and_batch_input_files(input_path,label,invariant_args)
         @info "\tInput file partitioned into $(length(files)) files ($(length(batches)) batches)"
@@ -45,7 +45,6 @@ module Recursion
             files=files,
             threshold=threshold,
             cache_path=cache_path,
-            previous_groups_path=previous_groups_path,
             label=label,
             partition_dir=partition_dir,
             invariant_args=invariant_args
@@ -67,7 +66,7 @@ module Recursion
     end
 
 
-    function recursive_processing_direct_execution(;representatives_path,iteration,label,cache_path,previous_groups_path,invariant_args)
+    function recursive_processing_direct_execution(;representatives_path,iteration,label,cache_path,invariant_args)
         """
         When population size is tractable (i.e., below partition threshold),
         carry out remaining recrusive iterations directly in a single function
@@ -78,7 +77,7 @@ module Recursion
 
         distance_function = map_distance_function(invariant_args["metric"])
 
-        data_dict,_ = load_milk_binaries(representatives_path)
+        data_dict,groupsize_dict = load_milk_binaries(representatives_path)
         n = length(data_dict)
 
         cache_dict = attempt_to_load_cache(cache_path)
@@ -86,24 +85,20 @@ module Recursion
             cache_dict = copy(data_dict)
         end
 
-        previous_groups = attempt_to_load_previous_groups(previous_groups_path)
-
         i = iteration
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
         while n > invariant_args["sample-size"]
             @info "Iteration: $i ($n objects)"
             flush(stdout)
-            representatives_dict,cache_dict,groups = stratification_process_direct_execution(
+            data_dict,groupsize_dict = stratification_process_direct_execution(
                 data_dict=data_dict,
+                groupsize_dict=groupsize_dict,
                 perc=invariant_args["percentile"],
                 cache_dict=cache_dict,
-                previous_groups=previous_groups,
                 distance_function=distance_function,
                 label=full_label,
                 output_dir=invariant_args["output-dir"]
             )
-            previous_groups = groups
-            data_dict = representatives_dict
             n = length(data_dict)
             @info "\t$n objects after recursive iteration."
             i += 1

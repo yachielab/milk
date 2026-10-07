@@ -49,7 +49,7 @@ module FileHandling
 
     function load_groups_as_dictionary(path)
 
-        threshold = split(readline(metadata_path(path)),'\t')[5]
+        threshold = split(readline(metadata_path(path)),'\t')[4]
 
         groups = Dict{String,Vector{String}}()
         spread_dict = Dict{String,Any}()
@@ -75,22 +75,22 @@ module FileHandling
         return groups_dict
     end
 
-    function write_group_metadata(;path,label,stage,cache_label,compiled_label,threshold,n_input_objects,n_groups,n_comparisons)
-        open_file_write(metadata_path(path),gzip=false) do file
-            # columns: label, stage, cache, compiled, threshold, n_input_objects, n_groups, n_comparisons
-            fields = [label,stage,cache_label,compiled_label,threshold,n_input_objects,n_groups,n_comparisons]
+    function write_group_metadata(;path,label,stage,cache_label,threshold,n_input_objects,n_groups,n_comparisons)
+        open(metadata_path(path),"w") do file
+            # columns: label, stage, cache, threshold, n_input_objects, n_groups, n_comparisons
+            fields = [label,stage,cache_label,threshold,n_input_objects,n_groups,n_comparisons]
             println(file,join(fields,'\t'))
         end
     end
 
-    function write_group_results(;path,label,stage,cache_label,compiled_label,n_input_objects,n_groups,groups,optimization_set,direct_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
+    function write_group_results(;path,label,stage,cache_label,n_input_objects,n_groups,groups,optimization_set,
+                                  direct_groupsize_dict,total_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
 
         write_group_metadata(
             path=path,
             label=label,
             stage=stage,
             cache_label=cache_label,
-            compiled_label=compiled_label,
             threshold=threshold,
             n_input_objects=n_input_objects,
             n_groups=n_groups,
@@ -103,8 +103,8 @@ module FileHandling
                     "label" => label,
                     "representative_id" => representative_id,
                     "group" => group,
-                    "direct_group_size" => direct_groupsize_dict[representative_id],
-                    "total_group_size" => length(group),
+                    "direct_group_size" => length(group),
+                    "total_group_size" => total_groupsize_dict[representative_id],
                     "distances" => distances_dict[representative_id],
                     "specificity" => specificity_dict[representative_id],
                     "optimized" => (representative_id in optimization_set)
@@ -334,17 +334,8 @@ module FileHandling
         return cache_dict
     end
 
-    function attempt_to_load_previous_groups(path)
-        previous_groups = nothing
-        if !isnothing(path) && isfile(path)
-            previous_groups_dict = load_groups_as_dictionary(path)
-            previous_groups = previous_groups_dict["groups"]
-        end
-        return previous_groups
-    end
-
-    function prepare_milk_input(csv_path)
-        milk_input_dir = joinpath(dirname(csv_path),"milk_input")
+    function prepare_milk_input(csv_path,label)
+        milk_input_dir = joinpath(dirname(csv_path),"$(label).input")
         file_label = replace(basename(csv_path),r"\.csv(\.gz)?$" => "")
 
         ids_path = joinpath(milk_input_dir,"$(file_label).ids")

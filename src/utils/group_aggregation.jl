@@ -4,9 +4,9 @@ module GroupAggregation
     using Logging
 
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative
-    using ..FileHandling: load_groups_as_dictionary,load_milk_binaries,write_milk_binaries,
+    using ..FileHandling: load_milk_binaries,write_milk_binaries,
                            write_group_results,attempt_to_load_cache,metadata_path,binary_path,groupsize_path
-    using ..GroupStratification: stratification,stratification_predefined_medoids,compile_previous_groupings
+    using ..GroupStratification: stratification,stratification_predefined_medoids
     using ..RepresentativeOptimization: optimize_representatives
 
     export group_aggregation
@@ -30,7 +30,7 @@ module GroupAggregation
         concat_groups_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.groups.jsonl.gz")
         concatenate_files(paths=sort(glob("*.groups.jsonl.gz",partition_dir)),concatenated_path=concat_groups_path)
         concatenate_files(paths=sort(glob("*.groups.metadata.tsv",partition_dir)),concatenated_path=metadata_path(concat_groups_path))
-        n_groups = sum(parse(Int,split(line,'\t')[7]) for line in eachline(metadata_path(concat_groups_path)); init=0)
+        n_groups = sum(parse(Int,split(line,'\t')[6]) for line in eachline(metadata_path(concat_groups_path)); init=0)
 
         return concat_representatives_path,concat_groups_path,n_groups
     end
@@ -70,13 +70,9 @@ module GroupAggregation
         start_time = time()
         distance_function = map_distance_function(metric)
 
-        concat_representatives_dict,_ = load_milk_binaries(concat_representatives_path)
-        concat_groups_dict = load_groups_as_dictionary(concat_groups_path)
-
-        concat_groups = concat_groups_dict["groups"]
+        concat_representatives_dict,concat_groupsize_dict = load_milk_binaries(concat_representatives_path)
         n_comparisons = 0
-
-        n = sum(length(group) for group in values(concat_groups))
+        n = sum(values(concat_groupsize_dict))
 
         cache_dict = attempt_to_load_cache(cache_path)
         cache_label = isnothing(cache_dict) ? "no" : "yes"
@@ -96,14 +92,14 @@ module GroupAggregation
         )
         n_comparisons += x
 
-        direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
-        optimized_groups = compile_previous_groupings(optimized_groups,concat_groups)
+        direct_groupsize_dict = Dict(id => length(group) for (id,group) in optimized_groups)
+        total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups)
 
         G = length(optimized_dict)
         g = length(optimization_set)
         t = round(threshold,digits=4)
 
-        N = sum(length(group) for group in values(optimized_groups))
+        N = sum(values(total_groupsize_dict))
 
         end_time = time()
 
@@ -112,19 +108,18 @@ module GroupAggregation
 
         representatives_path = joinpath(output_dir,"$label.representatives.ids")
         groups_path = joinpath(output_dir,"$label.groups.jsonl.gz")
-        groupsize_dict = Dict(id => 1 for id in keys(optimized_dict))
-        write_milk_binaries(optimized_dict,groupsize_dict,representatives_path)
+        write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path)
         write_group_results(
             path=groups_path,
             label=label,
             stage="representative_stratification_merge",
             cache_label=cache_label,
-            compiled_label="yes",
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
             optimization_set=optimization_set,
             direct_groupsize_dict=direct_groupsize_dict,
+            total_groupsize_dict=total_groupsize_dict,
             distances_dict=distances_dict,
             specificity_dict=specificity_dict,
             threshold=threshold,

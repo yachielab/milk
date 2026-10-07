@@ -5,7 +5,7 @@ module HPC
 
     export submit_stratification_batch_array_jobs
 
-    function instantiate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,previous_groups_path,output_dir,invariant_args)
+    function instantiate_array_job_script(;label,n_batches,array_inputs_path,threshold,cache_path,output_dir,invariant_args)
         jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
         stdout_dir = joinpath(jobs_dir,"stdout")
         stderr_dir = joinpath(jobs_dir,"stderr")
@@ -27,7 +27,6 @@ module HPC
             PERCENTILE=$(invariant_args["percentile"])
             METRIC=$(invariant_args["metric"])
             CACHE_PATH=$(cache_path)
-            PREVIOUS_GROUPS_PATH=$(previous_groups_path)
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
             export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
@@ -50,7 +49,6 @@ module HPC
             PERCENTILE=$(invariant_args["percentile"])
             METRIC=$(invariant_args["metric"])
             CACHE_PATH=$(cache_path)
-            PREVIOUS_GROUPS_PATH=$(previous_groups_path)
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
             export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
@@ -67,7 +65,6 @@ module HPC
         --stratification-percentile \$PERCENTILE \\
         --stratification-metric \$METRIC \\
         --stratification-cache-path \$CACHE_PATH \\
-        --stratification-previous-groups-path \$PREVIOUS_GROUPS_PATH \\
         -T $(invariant_args["threads"]) \\
         --stratification-output-dir \$OUTPUT_DIR
         """
@@ -77,15 +74,12 @@ module HPC
         return script_path
     end
 
-    function submit_stratification_batch_array_jobs(;batches,files,threshold,cache_path,previous_groups_path,label,partition_dir,invariant_args)
+    function submit_stratification_batch_array_jobs(;batches,files,threshold,cache_path,label,partition_dir,invariant_args)
         n = length(files)
         array_inputs_path = joinpath(partition_dir,"batch_dirlist.txt")
         write_values_as_txt(batches,array_inputs_path)
         if isnothing(cache_path)
             cache_path = "nothing"
-        end
-        if isnothing(previous_groups_path)
-            previous_groups_path = "nothing"
         end
         script_path = instantiate_array_job_script(
             label=label,
@@ -93,7 +87,6 @@ module HPC
             array_inputs_path=array_inputs_path,
             threshold=threshold,
             cache_path=cache_path,
-            previous_groups_path=previous_groups_path,
             output_dir=partition_dir,
             invariant_args=invariant_args
         )

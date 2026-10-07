@@ -118,9 +118,6 @@ module CLI
             "--stratification-cache-path"
                 arg_type = String
                 default = nothing
-            "--stratification-previous-groups-path"
-                arg_type = String
-                default = nothing
             "--stratification-output-dir"
                 arg_type = String
         end

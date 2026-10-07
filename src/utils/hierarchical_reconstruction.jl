@@ -50,7 +50,7 @@ module HierarchicalReconstruction
 
                 groups_path = pathlist[1]
                 i = extract_iteration(groups_path)+1
-                threshold = split(readline(metadata_path(groups_path)),'\t')[5]
+                threshold = split(readline(metadata_path(groups_path)),'\t')[4]
                 open_file_read(groups_path,gzip=true) do file
                     for line in eachline(file)
                         group_dict = JSON.parse(line)
@@ -81,7 +81,7 @@ module HierarchicalReconstruction
 
                 for groups_path in pathlist[2:end]
                     i = extract_iteration(groups_path)+1
-                    threshold = split(readline(metadata_path(groups_path)),'\t')[5]
+                    threshold = split(readline(metadata_path(groups_path)),'\t')[4]
                     open_file_read(groups_path,gzip=true) do file
                         for line in eachline(file)
                             group_dict = JSON.parse(line)
