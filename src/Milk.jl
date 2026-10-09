@@ -13,6 +13,7 @@ module Milk
 
     include("utils/file_handling.jl")
     include("utils/hpc.jl")
+    include("utils/ward.jl")
     include("utils/pairwise_comparisons.jl")
     include("utils/representative_optimization.jl")
     include("utils/group_stratification.jl")
@@ -30,6 +31,7 @@ module Milk
     using .CLI
     using .HPC
     using .Recursion
+    using .Ward
 
     include("main.jl")
     export main

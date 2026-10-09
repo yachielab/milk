@@ -7,9 +7,11 @@ module GroupStratification
                           write_group_results,open_file_write,
                           metadata_path,binary_path,groupsize_path
     using ..PairwiseComparisons: map_distance_function,map_object_to_representative_precomputed,
-                                 map_object_to_representative,compute_pairwise_distance_matrix
+                                 map_object_to_representative,compute_pairwise_distance_matrix,
+                                 compute_euclidean_distance
     using ..RepresentativeOptimization: optimize_representatives
     using ..HPC: submit_stratification_batch_array_jobs
+    using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold
 
     export stratification,
            stratification_predefined_medoids,
@@ -18,7 +20,8 @@ module GroupStratification
            stratification_process_direct_execution,
            stratification_process_distributed_execution,
            partitioned_group_stratification,
-           batch_group_stratification_hpc_mode
+           batch_group_stratification_hpc_mode,
+           ward_stratification
 
     function stratification_precomputed_distances(data_dict,D,index_map,threshold)
         representative_dict = Dict{String,Vector{Float32}}()
@@ -134,7 +137,7 @@ module GroupStratification
         if (b == 1 || !invariant_args["hpc-mode"])
             pathlist = sort(files)
             start_time = time()
-            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,cache_dict,partition_dir), pathlist)
+            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,invariant_args["linkage"],cache_dict,partition_dir), pathlist)
             GC.gc()
             elapsed_time = round((time()-start_time)/60,digits=2)
             if invariant_args["verbose"]
@@ -155,7 +158,7 @@ module GroupStratification
         return
     end
 
-    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,cache_path,verbose,output_dir)
+    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_path,verbose,output_dir)
 
         @info "Starting distributed stratification process"
         @info "  $(nworkers()) workers"
@@ -163,6 +166,7 @@ module GroupStratification
         @info "  Threshold: $(threshold)"
         @info "  Percentile: $(percentile)"
         @info "  Metric: $(metric)"
+        @info "  Linkage: $(linkage)"
         @info "  Cache path: $(cache_path)"
         @info "  Output directory: $(output_dir)"
         flush(stdout)
@@ -174,8 +178,7 @@ module GroupStratification
         @info "Initiating the pmap distributed call"
         flush(stdout)
         pathlist = sort(glob("*.ids",input_dir))
-        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,cache_dict,output_dir), pathlist)
-
+        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,linkage,cache_dict,output_dir), pathlist)
         if verbose
             for info in info_list
                 @info info
@@ -184,7 +187,7 @@ module GroupStratification
 
     end
 
-    function stratification_process_direct_execution(;data_dict,groupsize_dict,perc,cache_dict,distance_function,label,output_dir)
+    function stratification_process_direct_execution(;data_dict,groupsize_dict,perc,cache_dict,distance_function,linkage,label,output_dir)
         """
         This is only called when performing direct execution of recursive iterations.
         In such cases, there is only a single file to work with, so no need to distribute computing.
@@ -194,20 +197,26 @@ module GroupStratification
         n_comparisons = 0
         D,index_map,threshold,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
         n_comparisons += x
-
-        _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
-        optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
-        n_comparisons += x
-        optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
-            data_dict=data_dict,
-            representative_dict=optimized_dict,
-            D=D,
-            index_map=index_map,
-            cache_dict=cache_dict,
-            threshold=threshold,
-            distance_function=distance_function
-        )
-        n_comparisons += x
+        if startswith(linkage,"ward")
+            balanced = linkage == "ward_balanced"
+            optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc,balanced)
+            specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
+            optimization_set = Set{String}()
+        else
+            _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
+            optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
+            n_comparisons += x
+            optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
+                data_dict=data_dict,
+                representative_dict=optimized_dict,
+                D=D,
+                index_map=index_map,
+                cache_dict=cache_dict,
+                threshold=threshold,
+                distance_function=distance_function
+            )
+            n_comparisons += x
+        end
         direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
         total_groupsize_dict = Dict(id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups)
 
@@ -242,7 +251,7 @@ module GroupStratification
         return optimized_dict,total_groupsize_dict
     end
 
-    function stratification_process_distributed_execution(path,threshold,perc,distance_function,cache_dict,output_dir)
+    function stratification_process_distributed_execution(path,threshold,perc,distance_function,linkage,cache_dict,output_dir)
 
         label = replace(basename(path),r"\.ids$" => "")
 
@@ -285,23 +294,28 @@ module GroupStratification
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         else
-    
             D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
             n_comparisons += x
-
-            _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
-            optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
-            n_comparisons += x
-            optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
-                data_dict=data_dict,
-                representative_dict=optimized_dict,
-                D=D,
-                index_map=index_map,
-                cache_dict=cache_dict,
-                threshold=threshold,
-                distance_function=distance_function
-            )
-            n_comparisons += x
+            if startswith(linkage,"ward")
+                balanced = linkage == "ward_balanced"
+                optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc,balanced)
+                specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
+                optimization_set = Set{String}()
+            else
+                _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
+                optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
+                n_comparisons += x
+                optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
+                    data_dict=data_dict,
+                    representative_dict=optimized_dict,
+                    D=D,
+                    index_map=index_map,
+                    cache_dict=cache_dict,
+                    threshold=threshold,
+                    distance_function=distance_function
+                )
+                n_comparisons += x
+            end
             direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
             total_groupsize_dict = Dict( id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups )
             end_time = time()
@@ -342,5 +356,36 @@ module GroupStratification
             return info
         end
     end
+
+function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p,balanced)
+    ids = Vector{String}(undef,length(index_map))
+    for (id,i) in index_map
+        ids[i] = id
+    end
+
+    sizes = [groupsize_dict[id] for id in ids]
+    cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
+    C = compute_ward_cost_matrix(D,cost_sizes)
+    if isnothing(threshold)
+        threshold = ward_percentile_threshold(C,p)
+    end
+    groups = ward_groups(C,threshold,cost_sizes)
+
+    representative_dict = Dict{String,Vector{Float32}}()
+    groups_dict = Dict{String,Vector{String}}()
+    distances_dict = Dict{String,Vector{Float32}}()
+    for group in groups
+        weights = sizes[group]
+        centroid = sum(weights[x]*data_dict[ids[g]] for (x,g) in enumerate(group)) / sum(weights)
+        dists = [compute_euclidean_distance(data_dict[ids[g]],centroid) for g in group]
+        representative_id = ids[group[argmin(dists)]] # named after the member closest to the centroid
+
+        representative_dict[representative_id] = centroid
+        groups_dict[representative_id] = ids[group]
+        distances_dict[representative_id] = Float32[d for (d,g) in zip(dists,group) if ids[g] != representative_id]
+    end
+    
+    return representative_dict,groups_dict,distances_dict,threshold
+end
 
 end

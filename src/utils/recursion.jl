@@ -90,16 +90,23 @@ module Recursion
         while n > invariant_args["sample-size"]
             @info "Iteration: $i ($n objects)"
             flush(stdout)
+            n_previous = n
             data_dict,groupsize_dict = stratification_process_direct_execution(
                 data_dict=data_dict,
                 groupsize_dict=groupsize_dict,
                 perc=invariant_args["percentile"],
                 cache_dict=cache_dict,
                 distance_function=distance_function,
+                linkage=invariant_args["linkage"],
                 label=full_label,
                 output_dir=invariant_args["output-dir"]
             )
             n = length(data_dict)
+
+            if n == n_previous
+                error("No groups merged at iteration $i ($n objects)! Stopping to avoid an infinity loop.")
+            end
+
             @info "\t$n objects after recursive iteration."
             i += 1
             full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"

@@ -27,7 +27,7 @@ module CLI
                 help = "How many objects per partitioned file."
             "--merge-threshold","-M"
                 arg_type = Int
-                default = 100000
+                default = 10000
                 help = "Threshold of when to carry out an additional merging stratification process (if exceeded, basic concatenation to join partitioned groups)"
             "--metric","-m"
                 arg_type = String
@@ -49,6 +49,10 @@ module CLI
                 arg_type = Int
                 default = 21
                 help = "Random seed."
+            "--linkage"
+                arg_type = String
+                default = "medoid"
+                help = "Grouping linkage. Permissible values: {'medoid','ward','ward_balanced'}"
             "--verbose"
                 action = :store_true
                 help = "Amount of information written to standard out/err."
@@ -115,6 +119,9 @@ module CLI
                 default = nothing
             "--stratification-metric"
                 arg_type = String
+            "--stratification-linkage"
+                arg_type = String
+                default = "medoid"
             "--stratification-cache-path"
                 arg_type = String
                 default = nothing
@@ -134,6 +141,7 @@ module CLI
             "merge-threshold"  => args["merge-threshold"],
             "percentile"       => args["percentile"],
             "metric"           => args["metric"],
+            "linkage"          => args["linkage"],
             "seed"             => args["seed"],
             "threads"          => args["threads"],
             "job-scheduler"    => args["job-scheduler"],
@@ -163,7 +171,7 @@ module CLI
         if args["hpc-mode"]
             supported_job_schedulers = Set{String}(["slurm","sge"])
             if !(args["job-scheduler"] in supported_job_schedulers)
-                error("$(args["job_scheduler"]) is either invalid or not supported.")
+                error("$(args["job-scheduler"]) is either invalid or not supported.")
             end
             if args["job-scheduler"] == "slurm"
                 if isnothing(args["job-account"])
@@ -181,6 +189,12 @@ module CLI
             if (isnothing(args["stratification-output-dir"]) || !isdir(args["stratification-output-dir"]))
                 error("Invalid '--stratification-output-dir' specified ($(args["stratification-output-dir"])).")
             end
+        end
+        if !(args["linkage"] in ("medoid","ward","ward_balanced"))
+            error("Invalid '--linkage' specified ($(args["linkage"])).")
+        end
+        if startswith(args["linkage"] ,"ward") && args["metric"] != "euclidean"
+            error("Ward linkage requires '--metric euclidean' (got $(args["metric"])).")
         end
     end
 

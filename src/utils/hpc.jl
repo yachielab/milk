@@ -26,6 +26,7 @@ module HPC
             THRESHOLD=$(threshold)
             PERCENTILE=$(invariant_args["percentile"])
             METRIC=$(invariant_args["metric"])
+            LINKAGE=$(invariant_args["linkage"])
             CACHE_PATH=$(cache_path)
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
@@ -48,6 +49,7 @@ module HPC
             THRESHOLD=$(threshold)
             PERCENTILE=$(invariant_args["percentile"])
             METRIC=$(invariant_args["metric"])
+            LINKAGE=$(invariant_args["linkage"])
             CACHE_PATH=$(cache_path)
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
@@ -64,6 +66,7 @@ module HPC
         --stratification-threshold \$THRESHOLD \\
         --stratification-percentile \$PERCENTILE \\
         --stratification-metric \$METRIC \\
+        --stratification-linkage \$LINKAGE \\
         --stratification-cache-path \$CACHE_PATH \\
         -T $(invariant_args["threads"]) \\
         --stratification-output-dir \$OUTPUT_DIR
@@ -74,7 +77,7 @@ module HPC
         return script_path
     end
 
-    function submit_stratification_batch_array_jobs(;batches,files,threshold,cache_path,label,partition_dir,invariant_args)
+     function submit_stratification_batch_array_jobs(;batches,files,threshold,cache_path,label,partition_dir,invariant_args)
         n = length(files)
         array_inputs_path = joinpath(partition_dir,"batch_dirlist.txt")
         write_values_as_txt(batches,array_inputs_path)

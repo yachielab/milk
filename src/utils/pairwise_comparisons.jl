@@ -5,10 +5,12 @@ module PairwiseComparisons
     using Distributed
 
     using ..FileHandling: load_milk_binaries
+    using ..Ward: compute_ward_cost_matrix,ward_percentile_threshold
 
     export map_distance_function,
            compute_pairwise_distance_matrix,
-           determine_percentile_threshold
+           determine_percentile_threshold,
+           compute_euclidean_distance
 
     function compute_cosine_distance(vec_i,vec_j)
         return cosine_dist(vec_i,vec_j)
@@ -82,13 +84,23 @@ module PairwiseComparisons
         return D,index_map,threshold,n_comparisons
     end
 
-    function determine_percentile_threshold_process(input_path,metric,p)
-        data_dict,_ = load_milk_binaries(input_path)
+    function determine_percentile_threshold_process(input_path,metric,p,linkage)
+        data_dict,groupsize_dict = load_milk_binaries(input_path)
         if length(data_dict) < 2
             return nothing
         end
         distance_function = map_distance_function(metric)
-        _,_,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function)
+        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function)
+        if startswith(linkage,"ward")
+            balanced = linkage == "ward_balanced"
+            ids = Vector{String}(undef,length(index_map))
+            for (id,i) in index_map
+                ids[i] = id
+            end
+            sizes = [groupsize_dict[id] for id in ids]
+            cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
+            threshold = ward_percentile_threshold(compute_ward_cost_matrix(D,cost_sizes),p)
+        end
         return threshold
     end
 
@@ -97,7 +109,8 @@ module PairwiseComparisons
         """
         metric = invariant_args["metric"]
         p = invariant_args["percentile"]
-        thresholds = pmap(path -> determine_percentile_threshold_process(path,metric,p),pathlist)
+        linkage = invariant_args["linkage"]
+        thresholds = pmap(path -> determine_percentile_threshold_process(path,metric,p,linkage),pathlist)
         filtered_thresholds = filter(!isnothing,thresholds)
         if isempty(filtered_thresholds)
             error("Unable to compute threshold due to all partitions having too few objects.")

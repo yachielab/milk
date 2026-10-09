@@ -9,6 +9,7 @@ function main()
             threshold=args["stratification-threshold"],
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
+            linkage=args["stratification-linkage"],
             cache_path=args["stratification-cache-path"],
             verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]
