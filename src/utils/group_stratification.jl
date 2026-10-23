@@ -294,7 +294,7 @@ module GroupStratification
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         else
-            D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
+            D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function,false)
             n_comparisons += x
             if startswith(linkage,"ward")
                 balanced = linkage == "ward_balanced"
@@ -382,7 +382,7 @@ function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p,ba
 
         representative_dict[representative_id] = centroid
         groups_dict[representative_id] = ids[group]
-        distances_dict[representative_id] = Float32[d for (d,g) in zip(dists,group) if ids[g] != representative_id]
+        distances_dict[representative_id] = dists
     end
     
     return representative_dict,groups_dict,distances_dict,threshold

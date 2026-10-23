@@ -44,7 +44,6 @@ module Ward
     end
 
     function ward_groups(C,threshold,groupsizes)
-        C = copy(C)
         n = size(C,1)
         if n < 2
             return [[1]]
@@ -81,9 +80,9 @@ module Ward
                 if k == i
                     continue
                 end
-                if C[i,k] < min_cost
+                if C[k,i] < min_cost
                     j = k
-                    min_cost = C[i,k]
+                    min_cost = C[k,i]
                 end
             end
 

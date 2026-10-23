@@ -51,7 +51,7 @@ module CLI
                 help = "Random seed."
             "--linkage"
                 arg_type = String
-                default = "medoid"
+                default = "ward"
                 help = "Grouping linkage. Permissible values: {'medoid','ward','ward_balanced'}"
             "--verbose"
                 action = :store_true

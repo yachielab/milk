@@ -10,6 +10,7 @@ module Milk
     using StatsBase
     using Base.Iterators
     using Random
+    using LinearAlgebra
 
     include("utils/file_handling.jl")
     include("utils/hpc.jl")
@@ -35,6 +36,10 @@ module Milk
 
     include("main.jl")
     export main
+
+    function __init__()
+        BLAS.set_num_threads(1)
+    end
 
     function _ping_workers(n_cpus::Integer)
         workers_needed = max(n_cpus, 1) - nworkers()

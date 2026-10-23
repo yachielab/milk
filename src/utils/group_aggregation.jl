@@ -82,7 +82,7 @@ module GroupAggregation
 
         if startswith(linkage,"ward")
             balanced = linkage == "ward_balanced"
-            D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function)
+            D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false)
             n_comparisons += x
             optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))

@@ -55,7 +55,16 @@ module PairwiseComparisons
         return distance_function
     end
 
-    function compute_pairwise_distance_matrix(data_dict,p,distance_function)
+    const PAIRWISE_METRIC = Dict(
+        compute_euclidean_distance => Euclidean(),
+        compute_cosine_distance => CosineDist(),
+        compute_manhattan_distance => Cityblock(),
+        compute_hamming_distance => Hamming(),
+        compute_jaccard_distance => Jaccard(),
+        compute_correlation_distance => CorrDist(),
+    )
+
+    function compute_pairwise_distance_matrix(data_dict,p,distance_function,compute_threshold=true)
         """
         When working with lower-dimensional representations of gene expression space,
         distribution of distance matrix computation across files with single CPU distance matrix 
@@ -66,21 +75,14 @@ module PairwiseComparisons
         ids = collect(keys(data_dict))
         index_map = Dict( ids[i] => i for i in eachindex(ids) )
         n = length(ids)
-        D = zeros(Float32,n,n)
-        indices = [ (ids[i],ids[j]) for i in 1:n-1 for j in i+1:n ]
-        L = length(indices)
-        distances = Vector{Float32}(undef,L)
-        @inbounds @simd for x in eachindex(indices)
-            id_i,id_j = indices[x]
-            i = index_map[id_i]
-            j = index_map[id_j]
-            d = distance_function(data_dict[id_i],data_dict[id_j])
-            D[i,j] = d
-            D[j,i] = d
-            distances[x] = d
-        end
-        threshold = percentile(distances,p)
-        n_comparisons = length(distances)
+        X = stack(data_dict[id] for id in ids) # d × n, one column per object
+        metric = get(PAIRWISE_METRIC,distance_function,nothing)
+        D = isnothing(metric) ?
+            Float32[distance_function(view(X,:,i),view(X,:,j)) for i in 1:n, j in 1:n] :
+            pairwise(metric,X;dims=2)
+        D = eltype(D) === Float32 ? D : Float32.(D)
+        threshold = compute_threshold ? percentile([D[i,j] for j in 2:n for i in 1:j-1],p) : nothing
+        n_comparisons = div(n*(n-1),2)
         return D,index_map,threshold,n_comparisons
     end
 
@@ -90,7 +92,8 @@ module PairwiseComparisons
             return nothing
         end
         distance_function = map_distance_function(metric)
-        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function)
+        # D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function)
+        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function,!startswith(linkage,"ward"))
         if startswith(linkage,"ward")
             balanced = linkage == "ward_balanced"
             ids = Vector{String}(undef,length(index_map))
