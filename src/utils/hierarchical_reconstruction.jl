@@ -4,7 +4,7 @@ module HierarchicalReconstruction
     using JSON
     using Logging
     using Statistics
-    using ..FileHandling: open_file_write,open_file_read
+    using ..FileHandling: open_file_write,open_file_read,metadata_path
 
     export hierarchical_reconstruction
 
@@ -17,13 +17,13 @@ module HierarchicalReconstruction
     @inline function get_spread(group_dict)
         """ group spread (inverse density) of members with respect to representative
         """
-        return isempty(group_dict["distances"]) ? "" : string(mean(group_dict["distances"]))
+        return isempty(group_dict["distances"]) ? "" : string(round(mean(group_dict["distances"]); sigdigits=4))
     end
 
     @inline function get_specificity(group_dict)
         """ group specificity of members with respect to representative
         """
-        return isempty(group_dict["specificity"]) ? "" : string(mean(group_dict["specificity"]))
+        return isempty(group_dict["specificity"]) ? "" : string(round(mean(group_dict["specificity"]); sigdigits=4))
     end
 
     function hierarchical_reconstruction(input_dir)
@@ -45,11 +45,12 @@ module HierarchicalReconstruction
         id = 1
         open_file_write(vertices_path, gzip=true) do vertices_io
             open_file_write(edges_path, gzip=true) do edges_io
-                println(vertices_io,"node_id,representative_id,group_size,iteration,threshold,spread,specificity,resolution")
+                println(vertices_io,"node_id,representative_id,direct_group_size,total_group_size,iteration,threshold,spread,specificity,resolution")
                 println(edges_io,"source,target")
 
                 groups_path = pathlist[1]
                 i = extract_iteration(groups_path)+1
+                threshold = split(readline(metadata_path(groups_path)),'\t')[4]
                 open_file_read(groups_path,gzip=true) do file
                     for line in eachline(file)
                         group_dict = JSON.parse(line)
@@ -60,16 +61,17 @@ module HierarchicalReconstruction
 
                         # instantiating leaves
                         for sample_id in group_dict["group"]
-                            println(vertices_io,"$(sample_id),$(sample_id),1,0,0,,,0")
+                            println(vertices_io,"$(sample_id),$(sample_id),1,1,0,0,,,0")
                             println(edges_io,"$(group_id),$(sample_id)")
                         end
         
                         fields = [
                             group_id,
                             group_dict["representative_id"],
-                            group_dict["compiled_group_size"],
+                            group_dict["direct_group_size"],
+                            group_dict["total_group_size"],
                             i,
-                            group_dict["threshold"],
+                            threshold,
                             get_spread(group_dict),
                             get_specificity(group_dict),
                             length(group_dict["distances"]) # resolution
@@ -80,6 +82,7 @@ module HierarchicalReconstruction
 
                 for groups_path in pathlist[2:end]
                     i = extract_iteration(groups_path)+1
+                    threshold = split(readline(metadata_path(groups_path)),'\t')[4]
                     open_file_read(groups_path,gzip=true) do file
                         for line in eachline(file)
                             group_dict = JSON.parse(line)
@@ -91,9 +94,10 @@ module HierarchicalReconstruction
                             fields = [
                                 group_id,
                                 group_dict["representative_id"],
-                                group_dict["compiled_group_size"],
+                                group_dict["direct_group_size"],
+                                group_dict["total_group_size"],
                                 i,
-                                group_dict["threshold"],
+                                threshold,
                                 get_spread(group_dict),
                                 get_specificity(group_dict),
                                 length(group_dict["distances"]) # resolution
@@ -101,7 +105,9 @@ module HierarchicalReconstruction
                             println(vertices_io,join(fields,","))
                             for sample_id in group_dict["group"]
                                 subgroup_label = "$(sample_id)|$(i-1)"
-                                if !haskey(id_map,subgroup_label) continue end
+                                if !haskey(id_map,subgroup_label)
+                                    error("Member $(sample_id) of $(group_dict["representative_id"]) not found at iteration $(i-1)")
+                                end
                                 subgroup_id = id_map[subgroup_label]
                                 println(edges_io,"$(group_id),$(subgroup_id)")
                             end

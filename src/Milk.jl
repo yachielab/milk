@@ -10,16 +10,18 @@ module Milk
     using StatsBase
     using Base.Iterators
     using Random
+    using LinearAlgebra
 
     include("utils/file_handling.jl")
     include("utils/hpc.jl")
+    include("utils/ward.jl")
     include("utils/pairwise_comparisons.jl")
     include("utils/representative_optimization.jl")
     include("utils/group_stratification.jl")
     include("utils/group_aggregation.jl")
     include("utils/hierarchical_reconstruction.jl")
     include("utils/cli.jl")
-    include("utils/utils.jl")
+    include("utils/recursion.jl")
 
     using .FileHandling
     using .PairwiseComparisons
@@ -29,10 +31,15 @@ module Milk
     using .HierarchicalReconstruction
     using .CLI
     using .HPC
-    using .Utils
+    using .Recursion
+    using .Ward
 
     include("main.jl")
     export main
+
+    function __init__()
+        BLAS.set_num_threads(1)
+    end
 
     function _ping_workers(n_cpus::Integer)
         workers_needed = max(n_cpus, 1) - nworkers()
@@ -41,7 +48,7 @@ module Milk
         end
     
         get!(ENV, "JULIA_WORKER_TIMEOUT", "60")
-        for attempt in 1:3
+        for attempt in 1:5
             try
                 addprocs(workers_needed)
                 return 0
@@ -53,7 +60,7 @@ module Milk
     
         for i in 1:workers_needed
             success = false
-            for attempt in 1:3
+            for attempt in 1:5
                 try
                     newp = addprocs(1)
                     success = true

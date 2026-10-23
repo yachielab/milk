@@ -12,7 +12,7 @@ module CLI
             "--input-path","-i" 
                 arg_type = String
                 required = true
-                help = "Uncompressed CSV file. First column corresponds to object IDs (e.g., cell barcode). No header"
+                help = "CSV file (uncompressed or gzipped). First column corresponds to object IDs (e.g., cell barcode). No header"
             "--sample-size","-n"
                 arg_type = Int
                 default = 1
@@ -27,7 +27,7 @@ module CLI
                 help = "How many objects per partitioned file."
             "--merge-threshold","-M"
                 arg_type = Int
-                default = 100000
+                default = 10000
                 help = "Threshold of when to carry out an additional merging stratification process (if exceeded, basic concatenation to join partitioned groups)"
             "--metric","-m"
                 arg_type = String
@@ -49,6 +49,10 @@ module CLI
                 arg_type = Int
                 default = 21
                 help = "Random seed."
+            "--linkage"
+                arg_type = String
+                default = "ward"
+                help = "Grouping linkage. Permissible values: {'medoid','ward','ward_balanced'}"
             "--verbose"
                 action = :store_true
                 help = "Amount of information written to standard out/err."
@@ -58,6 +62,9 @@ module CLI
             "--skip-reconstruction"
                 action = :store_true
                 help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
+            "--convert-input-only"
+                action = :store_true
+                help = "Convert the input CSV to MILK's binary format (.ids/.bin/.sizes next to the CSV) and exit."
             "--output-dir","-o"
                 arg_type = String
                 default = "./milk.out"
@@ -112,10 +119,10 @@ module CLI
                 default = nothing
             "--stratification-metric"
                 arg_type = String
-            "--stratification-cache-path"
+            "--stratification-linkage"
                 arg_type = String
-                default = nothing
-            "--stratification-previous-groups-path"
+                default = "medoid"
+            "--stratification-cache-path"
                 arg_type = String
                 default = nothing
             "--stratification-output-dir"
@@ -134,6 +141,7 @@ module CLI
             "merge-threshold"  => args["merge-threshold"],
             "percentile"       => args["percentile"],
             "metric"           => args["metric"],
+            "linkage"          => args["linkage"],
             "seed"             => args["seed"],
             "threads"          => args["threads"],
             "job-scheduler"    => args["job-scheduler"],
@@ -163,7 +171,7 @@ module CLI
         if args["hpc-mode"]
             supported_job_schedulers = Set{String}(["slurm","sge"])
             if !(args["job-scheduler"] in supported_job_schedulers)
-                error("$(args["job_scheduler"]) is either invalid or not supported.")
+                error("$(args["job-scheduler"]) is either invalid or not supported.")
             end
             if args["job-scheduler"] == "slurm"
                 if isnothing(args["job-account"])
@@ -181,6 +189,12 @@ module CLI
             if (isnothing(args["stratification-output-dir"]) || !isdir(args["stratification-output-dir"]))
                 error("Invalid '--stratification-output-dir' specified ($(args["stratification-output-dir"])).")
             end
+        end
+        if !(args["linkage"] in ("medoid","ward","ward_balanced"))
+            error("Invalid '--linkage' specified ($(args["linkage"])).")
+        end
+        if startswith(args["linkage"] ,"ward") && args["metric"] != "euclidean"
+            error("Ward linkage requires '--metric euclidean' (got $(args["metric"])).")
         end
     end
 

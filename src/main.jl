@@ -9,8 +9,8 @@ function main()
             threshold=args["stratification-threshold"],
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
+            linkage=args["stratification-linkage"],
             cache_path=args["stratification-cache-path"],
-            previous_groups_path=args["stratification-previous-groups-path"],
             verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]
         )
@@ -21,6 +21,19 @@ function main()
         @info "MILK"
         flush(stdout)
 
+        if isnothing(args["label"])
+            label = replace(basename(args["input-path"]),r"\.csv(\.gz)?$" => "")
+        else
+            label = args["label"]
+        end
+
+        absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
+        milk_input_path = prepare_milk_input(absolute_input_path,label)
+        if args["convert-input-only"]
+            @info "Conversion complete (--convert-input-only): $(milk_input_path)"
+            return
+        end
+    
         @info "Using $(nworkers()) worker(s) for distributed processing"
 
         log_args(args)
@@ -36,28 +49,18 @@ function main()
         end
         mkdir(invariant_args["output-dir"])
 
-        if isnothing(args["label"])
-            label = replace(basename(args["input-path"]),".csv" => "")
-        else
-            label = args["label"]
-        end
-
         cache_path = nothing
-        previous_groups_path = nothing
         i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
-        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
-        absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
-        if islink(input_path)
-            @warn "Symlink already exists! ($input_path)"
-            rm(input_path)
-        end
-        symlink(absolute_input_path,input_path)
+        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
+        symlink(milk_input_path,input_path)
+        symlink(binary_path(milk_input_path),binary_path(input_path))
+        symlink(groupsize_path(milk_input_path),groupsize_path(input_path))
 
-        n = get_object_count(input_path)
-
+        n = countlines(input_path)
+    
         @info "Iteration: $i ($n objects)"
         flush(stdout)
 
@@ -70,7 +73,6 @@ function main()
                 iteration=i,
                 label=label,
                 cache_path=cache_path,
-                previous_groups_path=previous_groups_path,
                 invariant_args=invariant_args
             )
         else
@@ -78,27 +80,21 @@ function main()
                 input_path=input_path,
                 label=full_label,
                 cache_path=nothing,
-                previous_groups_path=nothing,
                 invariant_args=invariant_args
             )
 
-            n = get_object_count(representatives_path)
+            n = countlines(representatives_path)
             if isnothing(cache_path)
                 cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-            end
-            # previous_groups_path = groups_path
-            if n <= args["cache-size-limit"]
-                previous_groups_path = groups_path
             end
 
             while n > args["sample-size"]
                 if n <= args["partition-size"]
                     recursive_processing_direct_execution(
                         representatives_path=representatives_path,
-                        iteration=i,
+                        iteration=i+1,
                         label=label,
                         cache_path=cache_path,
-                        previous_groups_path=previous_groups_path,
                         invariant_args=invariant_args
                     )
                     break
@@ -109,23 +105,20 @@ function main()
                 @info "Iteration: $i ($n objects)"
                 flush(stdout)
 
-                input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.csv")
+                input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
                 symlink(representatives_path,input_path)
+                symlink(binary_path(representatives_path),binary_path(input_path))
+                symlink(groupsize_path(representatives_path),groupsize_path(input_path))
 
                 representatives_path,groups_path = recursive_processing_framework(
                     input_path=input_path,
                     label=full_label,
                     cache_path=cache_path,
-                    previous_groups_path=previous_groups_path,
                     invariant_args=invariant_args
                 )
-                # previous_groups_path = groups_path
-                n = get_object_count(representatives_path)
+                n = countlines(representatives_path)
                 if isnothing(cache_path)
                     cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-                end
-                if n <= args["cache-size-limit"]
-                    previous_groups_path = groups_path
                 end
                 @info "\t$n objects after recursive iteration."
                 flush(stdout)
@@ -134,6 +127,8 @@ function main()
 
         @info "\nCompleted recursive downsampling procedure."
         flush(stdout)
+
+        final_cleanup(invariant_args["output-dir"])
 
         if args["skip-reconstruction"]
             @info "Skipping cell hierarchy reconstruction."
