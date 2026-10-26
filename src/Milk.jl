@@ -16,7 +16,6 @@ module Milk
     include("utils/hpc.jl")
     include("utils/ward.jl")
     include("utils/pairwise_comparisons.jl")
-    include("utils/representative_optimization.jl")
     include("utils/group_stratification.jl")
     include("utils/group_aggregation.jl")
     include("utils/hierarchical_reconstruction.jl")
@@ -25,7 +24,6 @@ module Milk
 
     using .FileHandling
     using .PairwiseComparisons
-    using .RepresentativeOptimization
     using .GroupAggregation
     using .GroupStratification
     using .HierarchicalReconstruction

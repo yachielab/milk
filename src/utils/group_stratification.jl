@@ -6,128 +6,16 @@ module GroupStratification
     using ..FileHandling: attempt_to_load_cache,load_milk_binaries,write_milk_binaries,
                           write_group_results,open_file_write,
                           metadata_path,binary_path,groupsize_path
-    using ..PairwiseComparisons: map_distance_function,map_object_to_representative_precomputed,
-                                 map_object_to_representative,compute_pairwise_distance_matrix,
-                                 compute_euclidean_distance
-    using ..RepresentativeOptimization: optimize_representatives
+    using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance
     using ..HPC: submit_stratification_batch_array_jobs
     using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold
 
-    export stratification,
-           stratification_predefined_medoids,
-           stratification_precomputed_distances,
-           stratification_predefined_medoids_precomputed_distances,
-           stratification_process_direct_execution,
+    export stratification_process_direct_execution,
            stratification_process_distributed_execution,
            partitioned_group_stratification,
            batch_group_stratification_hpc_mode,
-           ward_stratification
-
-    function stratification_precomputed_distances(data_dict,D,index_map,threshold)
-        representative_dict = Dict{String,Vector{Float32}}()
-        groups = Dict{String,Vector{String}}()
-        n_comparisons = 0
-        for (candidate_id,candidate_vec) in data_dict
-            i = index_map[candidate_id]
-            closest_id,_,_ = map_object_to_representative_precomputed(i,representative_dict,D,index_map,threshold)
-            if isnothing(closest_id)
-                representative_dict[candidate_id] = candidate_vec
-                groups[candidate_id] = [candidate_id]
-            else
-                push!(groups[closest_id],candidate_id)
-            end
-        end
-        return representative_dict,groups,n_comparisons
-    end
-
-    function stratification(data_dict,threshold,distance_function)
-        representative_dict = Dict{String,Vector{Float32}}()
-        groups = Dict{String,Vector{String}}()
-        n_comparisons = 0
-        for (candidate_id,candidate_vec) in data_dict
-            closest_id,_,n_comps,_ = map_object_to_representative(candidate_vec,representative_dict,threshold,distance_function)
-            n_comparisons += n_comps
-            if isnothing(closest_id)
-                representative_dict[candidate_id] = candidate_vec
-                groups[candidate_id] = [candidate_id]
-            else
-                push!(groups[closest_id],candidate_id)
-            end
-        end
-        return representative_dict,groups,n_comparisons
-    end
-
-    function stratification_predefined_medoids_precomputed_distances(;data_dict,representative_dict,D,index_map,cache_dict,threshold,distance_function)
-        groups = Dict( id => [id] for id in keys(representative_dict) )
-        distances_dict = Dict(id => Vector{Float32}() for id in keys(representative_dict))
-        specificity_dict = Dict(id => Vector{Int32}() for id in keys(representative_dict))
-        for (candidate_id,candidate_vec) in data_dict
-            if haskey(representative_dict,candidate_id) continue end
-            i = index_map[candidate_id]
-            closest_id,closest_dist,specificity = map_object_to_representative_precomputed(i,representative_dict,D,index_map,threshold)
-            if isnothing(closest_id)
-                """
-                New groups can still be formed if candidates are not similar to any of the optimized medoids, where
-                similarity is determined by the threshold.
-                """
-                representative_dict[candidate_id] = candidate_vec
-                groups[candidate_id] = [candidate_id]
-                distances_dict[candidate_id] = Vector{Float32}()
-                specificity_dict[candidate_id] = Vector{Int32}()
-            else
-                push!(groups[closest_id],candidate_id)
-                push!(distances_dict[closest_id],closest_dist)
-                push!(specificity_dict[closest_id],specificity)
-            end
-        end
-        x = 0
-        if !isnothing(cache_dict)
-            for (cache_id,cache_vec) in cache_dict
-                if haskey(index_map,cache_id) continue end
-                closest_id,closest_dist,n_comps,specificity = map_object_to_representative(cache_vec,representative_dict,threshold,distance_function)
-                x += n_comps
-                if !isnothing(closest_id)
-                    push!(distances_dict[closest_id],closest_dist)
-                    push!(specificity_dict[closest_id],specificity)
-                end
-            end
-        end
-        return representative_dict,groups,distances_dict,specificity_dict,x
-    end
-
-    function stratification_predefined_medoids(;data_dict,representative_dict,cache_dict,threshold,distance_function)
-        groups = Dict( id => [id] for id in keys(representative_dict) )
-        distances_dict = Dict(id => Vector{Float32}() for id in keys(representative_dict))
-        specificity_dict = Dict(id => Vector{Int32}() for id in keys(representative_dict))
-        x = 0
-        for (candidate_id,candidate_vec) in data_dict
-            if haskey(representative_dict,candidate_id) continue end
-            closest_id,closest_dist,n_comps,specificity = map_object_to_representative(candidate_vec,representative_dict,threshold,distance_function)
-            x += n_comps
-            if isnothing(closest_id)
-                representative_dict[candidate_id] = candidate_vec
-                groups[candidate_id] = [candidate_id]
-                distances_dict[candidate_id] = Vector{Float32}()
-                specificity_dict[candidate_id] = Vector{Int32}()
-            else
-                push!(groups[closest_id],candidate_id)
-                push!(distances_dict[closest_id],closest_dist)
-                push!(specificity_dict[closest_id],specificity)
-            end
-        end
-        if !isnothing(cache_dict)
-            for (cache_id,cache_vec) in cache_dict
-                if haskey(data_dict,cache_id) continue end
-                closest_id,closest_dist,n_comps,specificity = map_object_to_representative(cache_vec,representative_dict,threshold,distance_function)
-                x += n_comps
-                if !isnothing(closest_id)
-                    push!(distances_dict[closest_id],closest_dist)
-                    push!(specificity_dict[closest_id],specificity)
-                end
-            end
-        end
-        return representative_dict,groups,distances_dict,specificity_dict,x
-    end
+           ward_stratification,
+           medoid_stratification
 
     function partitioned_group_stratification(;batches,files,threshold,cache_path,label,partition_dir,invariant_args)
         b = length(batches)
@@ -201,21 +89,8 @@ module GroupStratification
             balanced = linkage == "ward_balanced"
             optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
-            optimization_set = Set{String}()
         else
-            _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
-            optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
-            n_comparisons += x
-            optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
-                data_dict=data_dict,
-                representative_dict=optimized_dict,
-                D=D,
-                index_map=index_map,
-                cache_dict=cache_dict,
-                threshold=threshold,
-                distance_function=distance_function
-            )
-            n_comparisons += x
+            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
         end
         direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
         total_groupsize_dict = Dict(id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups)
@@ -224,13 +99,12 @@ module GroupStratification
         end_time = time()
         n = length(data_dict)
         G = length(optimized_dict)
-        g = length(optimization_set)
         t = round(threshold,digits=4)
         N = sum(values(total_groupsize_dict))
         elapsed_time = round((end_time-start_time)/60,digits=2)
 
-        @info "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s)); runtime: $(elapsed_time) min"
-
+        @info "\t[$label] $G groups; $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s)); runtime: $(elapsed_time) min"
+    
         groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
         write_group_results(
             path=groups_path,
@@ -240,7 +114,6 @@ module GroupStratification
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
-            optimization_set=optimization_set,
             direct_groupsize_dict=direct_groupsize_dict,
             total_groupsize_dict=total_groupsize_dict,
             distances_dict=distances_dict,
@@ -278,7 +151,6 @@ module GroupStratification
                     n_input_objects=length(data_dict),
                     n_groups=1,
                     groups=Dict(representative_id => [representative_id]),
-                    optimization_set=Set{String}(),
                     direct_groupsize_dict=Dict(representative_id => 1),
                     total_groupsize_dict=Dict(representative_id => groupsize_dict[representative_id]),
                     distances_dict=Dict(representative_id => Float32[]),
@@ -290,7 +162,7 @@ module GroupStratification
                 rm(binary_path(path))
                 rm(groupsize_path(path))
             end
-            info = "\t[$label] 1 group (0 groups optimized); $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold (predefined); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
+            info = "\t[$label] 1 group; $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold (predefined); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         else
@@ -300,21 +172,8 @@ module GroupStratification
                 balanced = linkage == "ward_balanced"
                 optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc,balanced)
                 specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
-                optimization_set = Set{String}()
             else
-                _,groups = stratification_precomputed_distances(data_dict,D,index_map,threshold)
-                optimized_dict,optimization_set,x = optimize_representatives(data_dict,groups,cache_dict,distance_function)
-                n_comparisons += x
-                optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids_precomputed_distances(
-                    data_dict=data_dict,
-                    representative_dict=optimized_dict,
-                    D=D,
-                    index_map=index_map,
-                    cache_dict=cache_dict,
-                    threshold=threshold,
-                    distance_function=distance_function
-                )
-                n_comparisons += x
+                optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
             end
             direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
             total_groupsize_dict = Dict( id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups )
@@ -322,13 +181,12 @@ module GroupStratification
 
             n = length(data_dict)
             G = length(optimized_dict)
-            g = length(optimization_set)
             t = round(threshold,digits=4)
             N = sum(values(total_groupsize_dict))
             cache_label = isnothing(cache_dict) ? "no" : "yes"
             elapsed_time = round((end_time-start_time)/60,digits=2)
 
-            info = "\t[$label] $G groups ($g groups optimized); $n objects ($N total); threshold: $t (predefined); $n_comparisons comparisons ($(nworkers()) CPU(s)); runtime: $(elapsed_time) min"
+            info = "\t[$label] $G groups; $n objects ($N total); threshold: $t (predefined); $n_comparisons comparisons ($(nworkers()) CPU(s)); runtime: $(elapsed_time) min"
 
             representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
@@ -341,7 +199,6 @@ module GroupStratification
                 n_input_objects=N,
                 n_groups=G,
                 groups=optimized_groups,
-                optimization_set=optimization_set,
                 direct_groupsize_dict=direct_groupsize_dict,
                 total_groupsize_dict=total_groupsize_dict,
                 distances_dict=distances_dict,
@@ -357,35 +214,131 @@ module GroupStratification
         end
     end
 
-function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p,balanced)
-    ids = Vector{String}(undef,length(index_map))
-    for (id,i) in index_map
-        ids[i] = id
+    function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p,balanced)
+        ids = Vector{String}(undef,length(index_map))
+        for (id,i) in index_map
+            ids[i] = id
+        end
+
+        sizes = [groupsize_dict[id] for id in ids]
+        cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
+        C = compute_ward_cost_matrix(D,cost_sizes)
+        if isnothing(threshold)
+            threshold = ward_percentile_threshold(C,p)
+        end
+        groups = ward_groups(C,threshold,cost_sizes)
+
+        representative_dict = Dict{String,Vector{Float32}}()
+        groups_dict = Dict{String,Vector{String}}()
+        distances_dict = Dict{String,Vector{Float32}}()
+        for group in groups
+            weights = sizes[group]
+            centroid = sum(weights[x]*data_dict[ids[g]] for (x,g) in enumerate(group)) / sum(weights)
+            dists = [compute_euclidean_distance(data_dict[ids[g]],centroid) for g in group]
+            representative_id = ids[group[argmin(dists)]] # named after the member closest to the centroid
+
+            representative_dict[representative_id] = centroid
+            groups_dict[representative_id] = ids[group]
+            distances_dict[representative_id] = dists
+        end
+        
+        return representative_dict,groups_dict,distances_dict,threshold
     end
 
-    sizes = [groupsize_dict[id] for id in ids]
-    cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
-    C = compute_ward_cost_matrix(D,cost_sizes)
-    if isnothing(threshold)
-        threshold = ward_percentile_threshold(C,p)
+    function _soft_kernel_density(D,sizes,threshold)
+        n = size(D,1)
+        bandwidth = threshold > 0 ? threshold : eps(Float64)
+        density_vec = Vector{Float64}(undef,n)
+        for j in 1:n
+            kernels = exp.(-0.5 .* (view(D,:,j) ./ bandwidth).^2)
+            density_vec[j] = sum(sizes .* kernels)
+        end
+        return density_vec
     end
-    groups = ward_groups(C,threshold,cost_sizes)
 
-    representative_dict = Dict{String,Vector{Float32}}()
-    groups_dict = Dict{String,Vector{String}}()
-    distances_dict = Dict{String,Vector{Float32}}()
-    for group in groups
-        weights = sizes[group]
-        centroid = sum(weights[x]*data_dict[ids[g]] for (x,g) in enumerate(group)) / sum(weights)
-        dists = [compute_euclidean_distance(data_dict[ids[g]],centroid) for g in group]
-        representative_id = ids[group[argmin(dists)]] # named after the member closest to the centroid
-
-        representative_dict[representative_id] = centroid
-        groups_dict[representative_id] = ids[group]
-        distances_dict[representative_id] = dists
+    function _determine_weighted_medoid(D,sizes,members,density_vec)
+        candidate_costs = Vector{Float64}(undef,length(members))
+        for (k,candidate) in enumerate(members)
+            candidate_costs[k] = sum(sizes[i]*D[i,candidate] for i in members)
+        end
+        min_cost = minimum(candidate_costs)
+        tolerance = 1e-6*max(min_cost,1e-12)
+        tied_candidates = members[candidate_costs .<= min_cost + tolerance]
+        return tied_candidates[argmax(density_vec[tied_candidates])]
     end
+
+    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=50)
+        n = size(D,1)
+
+        # soft-kernel density ordering of cells (most->least dense)
+        density_vec = _soft_kernel_density(D,sizes,threshold)
+        ordered_indices = sortperm(density_vec,rev=true,alg=MergeSort)
+
+        # key: medoid index; value: vector of member indices
+        medoid_dict = Dict{Int,Vector{Int}}()
+        for iter in 1:max_iter
+
+            updated_medoid_dict = Dict{Int,Vector{Int}}(medoid => Int[] for medoid in keys(medoid_dict))
+            update_flag = false
+            for i in ordered_indices
+                if all(D[i,medoid] > threshold for medoid in keys(updated_medoid_dict))
+                    updated_medoid_dict[i] = Int[]
+                    update_flag = true
+                end
+            end
     
-    return representative_dict,groups_dict,distances_dict,threshold
-end
+            for i in 1:n
+                if haskey(updated_medoid_dict,i)
+                    push!(updated_medoid_dict[i],i)
+                    continue
+                end
+                nearest_medoid = 0 # invalid index
+                nearest_dist = Inf32
+                for medoid in keys(updated_medoid_dict)
+                    if D[i,medoid] <= threshold && D[i,medoid] < nearest_dist
+                        nearest_medoid = medoid
+                        nearest_dist = D[i,medoid]
+                    end
+                end
+                nearest_medoid == 0 && error("object $i has no medoid within threshold (NaN distance?)")
+                push!(updated_medoid_dict[nearest_medoid],i)
+            end
 
+            if (!update_flag && updated_medoid_dict == medoid_dict) || iter == max_iter
+                medoid_dict = updated_medoid_dict
+                break
+            end
+
+            medoid_dict = Dict{Int,Vector{Int}}()
+            for (medoid,members) in updated_medoid_dict
+                optimized_medoid = _determine_weighted_medoid(D,sizes,members,density_vec)
+                medoid_dict[optimized_medoid] = members
+            end
+        end
+        return medoid_dict
+    end
+
+    function medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+        ids = Vector{String}(undef,length(index_map))
+        for (id,i) in index_map
+            ids[i] = id
+        end
+
+        sizes = Float64[groupsize_dict[id] for id in ids]
+        medoid_dict = threshold_bound_kmedoids(D,sizes,threshold)
+        medoids = collect(keys(medoid_dict))
+
+        representative_dict = Dict{String,Vector{Float32}}()
+        groups_dict = Dict{String,Vector{String}}()
+        distances_dict = Dict{String,Vector{Float32}}()
+        specificity_dict = Dict{String,Vector{Int32}}()
+        for (medoid,members) in medoid_dict
+            medoid_id = ids[medoid]
+            representative_dict[medoid_id] = data_dict[medoid_id]
+            groups_dict[medoid_id] = ids[members]
+            distances_dict[medoid_id] = Float32[D[i,medoid] for i in members if i != medoid]
+            specificity_dict[medoid_id] = Int32[count(D[i,m] <= threshold for m in medoids) for i in members if i != medoid]
+        end
+        return representative_dict,groups_dict,distances_dict,specificity_dict
+    end
 end

@@ -3,11 +3,10 @@ module GroupAggregation
     using Glob
     using Logging
 
-    using ..PairwiseComparisons: map_distance_function,map_object_to_representative,compute_pairwise_distance_matrix
+    using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix
     using ..FileHandling: load_milk_binaries,write_milk_binaries,load_groups_as_dictionary,
                            write_group_results,attempt_to_load_cache,metadata_path,binary_path,groupsize_path
-    using ..GroupStratification: stratification,stratification_predefined_medoids,ward_stratification
-    using ..RepresentativeOptimization: optimize_representatives
+    using ..GroupStratification: ward_stratification,medoid_stratification
 
     export group_aggregation
 
@@ -80,26 +79,14 @@ module GroupAggregation
         cache_dict = attempt_to_load_cache(cache_path)
         cache_label = isnothing(cache_dict) ? "no" : "yes"
 
+        D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false)
+        n_comparisons += x
         if startswith(linkage,"ward")
             balanced = linkage == "ward_balanced"
-            D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false)
-            n_comparisons += x
             optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
-            optimization_set = Set{String}()
         else
-            merged_representatives,merged_groups,n_comps = stratification(concat_representatives_dict,threshold,distance_function)
-            n_comparisons += n_comps
-            optimized_dict,optimization_set,x = optimize_representatives(concat_representatives_dict,merged_groups,cache_dict,distance_function)
-            n_comparisons += x
-            optimized_dict,optimized_groups,distances_dict,specificity_dict,x = stratification_predefined_medoids(
-                data_dict=concat_representatives_dict,
-                representative_dict=optimized_dict,
-                cache_dict=cache_dict,
-                threshold=threshold,
-                distance_function=distance_function
-            )
-            n_comparisons += x
+            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold)
         end
         
         total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups) # members = partition reps
@@ -109,14 +96,13 @@ module GroupAggregation
         direct_groupsize_dict = Dict(id => length(group) for (id,group) in optimized_groups) # members = previous level
 
         G = length(optimized_dict)
-        g = length(optimization_set)
         t = round(threshold,digits=4)
 
         N = sum(values(total_groupsize_dict))
 
         end_time = time()
 
-        @info "\t[MERGE: $label] $G groups ($g groups optimized); $n objects; threshold: $t; cache: $cache_label; runtime: $(round(end_time-start_time,digits=2)) seconds"
+        @info "\t[MERGE: $label] $G groups; $n objects; threshold: $t; cache: $cache_label; runtime: $(round(end_time-start_time,digits=2)) seconds"
         flush(stdout)
 
         representatives_path = joinpath(output_dir,"$label.representatives.ids")
@@ -130,7 +116,6 @@ module GroupAggregation
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
-            optimization_set=optimization_set,
             direct_groupsize_dict=direct_groupsize_dict,
             total_groupsize_dict=total_groupsize_dict,
             distances_dict=distances_dict,

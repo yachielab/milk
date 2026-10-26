@@ -83,8 +83,8 @@ module FileHandling
         end
     end
 
-    function write_group_results(;path,label,stage,cache_label,n_input_objects,n_groups,groups,optimization_set,
-                                  direct_groupsize_dict,total_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
+    function write_group_results(;path,label,stage,cache_label,n_input_objects,n_groups,groups,direct_groupsize_dict,
+                                  total_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
 
         write_group_metadata(
             path=path,
@@ -106,8 +106,7 @@ module FileHandling
                     "direct_group_size" => length(group),
                     "total_group_size" => total_groupsize_dict[representative_id],
                     "distances" => distances_dict[representative_id],
-                    "specificity" => specificity_dict[representative_id],
-                    "optimized" => (representative_id in optimization_set)
+                    "specificity" => specificity_dict[representative_id]
                 )
                 JSON.print(file,group_info)
                 println(file)

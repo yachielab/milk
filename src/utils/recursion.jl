@@ -4,12 +4,9 @@ module Recursion
     using Logging
     using StatsBase
 
-    using ..PairwiseComparisons: map_object_to_representative,map_object_to_representative_precomputed,
-                                 determine_percentile_threshold,map_distance_function,compute_pairwise_distance_matrix
-    using ..RepresentativeOptimization: optimize_representatives
+    using ..PairwiseComparisons: determine_percentile_threshold,map_distance_function,compute_pairwise_distance_matrix
     using ..GroupAggregation: group_aggregation
-    using ..GroupStratification: stratification_predefined_medoids_precomputed_distances,stratification_precomputed_distances,
-                                partitioned_group_stratification,stratification_process_direct_execution
+    using ..GroupStratification: partitioned_group_stratification,stratification_process_direct_execution
     using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
                           write_group_results,attempt_to_load_cache
 
