@@ -267,8 +267,12 @@ module GroupStratification
         return tied_candidates[argmax(density_vec[tied_candidates])]
     end
 
-    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=50)
+    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=50,radii=nothing)
         n = size(D,1)
+
+        if isnothing(radii)
+            radii = zeros(n)
+        end
 
         # soft-kernel density ordering of cells (most->least dense)
         density_vec = _soft_kernel_density(D,sizes,threshold)
@@ -281,7 +285,7 @@ module GroupStratification
             updated_medoid_dict = Dict{Int,Vector{Int}}(medoid => Int[] for medoid in keys(medoid_dict))
             update_flag = false
             for i in ordered_indices
-                if all(D[i,medoid] > threshold for medoid in keys(updated_medoid_dict))
+                if all(D[i,medoid]+radii[i] > threshold for medoid in keys(updated_medoid_dict))
                     updated_medoid_dict[i] = Int[]
                     update_flag = true
                 end
@@ -295,7 +299,7 @@ module GroupStratification
                 nearest_medoid = 0 # invalid index
                 nearest_dist = Inf32
                 for medoid in keys(updated_medoid_dict)
-                    if D[i,medoid] <= threshold && D[i,medoid] < nearest_dist
+                    if D[i,medoid] + radii[i] <= threshold && D[i,medoid] < nearest_dist
                         nearest_medoid = medoid
                         nearest_dist = D[i,medoid]
                     end
@@ -318,14 +322,15 @@ module GroupStratification
         return medoid_dict
     end
 
-    function medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+    function medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold;radius_dict=nothing)
         ids = Vector{String}(undef,length(index_map))
         for (id,i) in index_map
             ids[i] = id
         end
 
         sizes = Float64[groupsize_dict[id] for id in ids]
-        medoid_dict = threshold_bound_kmedoids(D,sizes,threshold)
+        radii = isnothing(radius_dict) ? zeros(length(ids)) : Float64[radius_dict[id] for id in ids]
+        medoid_dict = threshold_bound_kmedoids(D,sizes,threshold,radii=radii)
         medoids = collect(keys(medoid_dict))
 
         representative_dict = Dict{String,Vector{Float32}}()
@@ -337,7 +342,7 @@ module GroupStratification
             representative_dict[medoid_id] = data_dict[medoid_id]
             groups_dict[medoid_id] = ids[members]
             distances_dict[medoid_id] = Float32[D[i,medoid] for i in members if i != medoid]
-            specificity_dict[medoid_id] = Int32[count(D[i,m] <= threshold for m in medoids) for i in members if i != medoid]
+            specificity_dict[medoid_id] = Int32[count(D[i,m]+radii[i] <= threshold for m in medoids) for i in members if i != medoid]
         end
         return representative_dict,groups_dict,distances_dict,specificity_dict
     end

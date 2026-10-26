@@ -79,6 +79,9 @@ module GroupAggregation
         cache_dict = attempt_to_load_cache(cache_path)
         cache_label = isnothing(cache_dict) ? "no" : "yes"
 
+        concat_groups_info = load_groups_as_dictionary(concat_groups_path) # partition rep => members, radius
+        concat_groups = concat_groups_info["groups"]
+
         D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false)
         n_comparisons += x
         if startswith(linkage,"ward")
@@ -86,12 +89,11 @@ module GroupAggregation
             optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
         else
-            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold)
+            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold;radius_dict=concat_groups_info["radius"])
         end
         
         total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups) # members = partition reps
 
-        concat_groups = load_groups_as_dictionary(concat_groups_path)["groups"] # partition rep => members (previous level)
         optimized_groups = Dict(id => reduce(vcat,(concat_groups[m] for m in group)) for (id,group) in optimized_groups)
         direct_groupsize_dict = Dict(id => length(group) for (id,group) in optimized_groups) # members = previous level
 
