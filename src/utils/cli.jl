@@ -199,6 +199,11 @@ module CLI
         if args["cache-size"] < 0
             error("'--cache-size' must be >= 0 (got $(args["cache-size"])).")
         end
+
+        if startswith(args["linkage"],"ward") && args["cache-size"] > 0
+            @warn "Ward linkage does not use the cache; ignoring '--cache-size $(args["cache-size"])' and setting it to 0."
+            args["cache-size"] = 0
+        end
     end
 
 
