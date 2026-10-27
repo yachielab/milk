@@ -28,14 +28,15 @@ function main()
         end
 
         absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
+        conversion_start = time()
         milk_input_path = prepare_milk_input(absolute_input_path,label)
+        conversion_time = round(time()-conversion_start,digits=2)
         if args["convert-input-only"]
             @info "Conversion complete (--convert-input-only): $(milk_input_path)"
             return
         end
     
         @info "Using $(nworkers()) worker(s) for distributed processing"
-
         log_args(args)
         invariant_args = instantiate_invariant_args(args)
 
@@ -49,6 +50,7 @@ function main()
         end
         mkdir(invariant_args["output-dir"])
 
+        recursion_start = time()
         i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
@@ -119,13 +121,18 @@ function main()
         flush(stdout)
 
         final_cleanup(invariant_args["output-dir"])
+        recursion_time = round(time()-recursion_start,digits=2)
 
+        reconstruction_start = time()
         if args["skip-reconstruction"]
             @info "Skipping cell hierarchy reconstruction."
         else
             @info "Reconstructing hierarchical graph..."
             hierarchical_reconstruction(args["output-dir"])
         end
+        reconstruction_time = round(time()-reconstruction_start,digits=2)
+        @info "Runtime (seconds): conversion $conversion_time; recursion $recursion_time; reconstruction $reconstruction_time; total $(round(conversion_time+recursion_time+reconstruction_time,digits=2))"
+    
         @info "\tDone!"
         flush(stdout)
     end
