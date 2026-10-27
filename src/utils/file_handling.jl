@@ -75,6 +75,7 @@ module FileHandling
         specificity_dict = Dict{String,Any}()
         resolution_dict = Dict{String,Any}()
         radius_dict = Dict{String,Float64}()
+        distances_dict = Dict{String,Vector{Float64}}()
         open_file_read(path,gzip=true) do file
             for line in eachline(file)
                 info = JSON.parse(line)
@@ -84,6 +85,7 @@ module FileHandling
                 specificity_dict[representative_id] = isempty(info["specificity"]) ? nothing : mean(info["specificity"]) 
                 resolution_dict[representative_id] = length(info["distances"])
                 radius_dict[representative_id] = isempty(info["distances"]) ? 0.0 : maximum(info["distances"])
+                distances_dict[representative_id] = Float64.(info["distances"])
             end
         end
         groups_dict = Dict(
@@ -92,7 +94,8 @@ module FileHandling
             "spread" => spread_dict,
             "specificity" => specificity_dict,
             "resolution" => resolution_dict,
-            "radius" => radius_dict
+            "radius" => radius_dict,
+            "distances" => distances_dict
         )
         return groups_dict
     end

@@ -32,7 +32,7 @@ module CLI
             "--metric","-m"
                 arg_type = String
                 default = "euclidean"
-                help = "Distance metric for pairwise comparisons. Permissible values: {'cosine','euclidean','manhattan','hamming','jaccard','correlation'})"
+                help = "Distance metric for pairwise comparisons. Permissible values: {'cosine','euclidean','manhattan','hamming','jaccard','correlation'}. Threshold bounds across partition merges are exact for true metrics (euclidean, manhattan, hamming, jaccard); cosine and correlation can exceed them slightly."
             "--label","-l"
                 arg_type = String
                 default = nothing

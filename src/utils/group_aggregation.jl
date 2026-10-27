@@ -101,6 +101,44 @@ module GroupAggregation
         
         total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups) # members = partition reps
         cache_dict = cache_size >= 1 ? update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function) : nothing
+    
+        # each previous-level member's distance to its merged representative, aligned with the expanded group:
+        # dist(member, partitioned rep) + dist(partitioned rep, merged rep) is an upper bound (triangle inequality)
+        partition_member_dists = concat_groups_info["distances"] # partitioned rep => its members' distances to it, in group order
+        merged_distances_dict = Dict{String,Vector{Float32}}()
+        for (merged_rep,partitioned_reps) in optimized_groups
+            updated_dists = Float32[]
+            for (i,partitioned_rep) in enumerate(partitioned_reps)
+                if startswith(linkage,"ward")
+                    # ward lists every member, representative included
+                    offset = distances_dict[merged_rep][i] # partition centroid -> merged centroid
+                    member_dists = partition_member_dists[partitioned_rep]
+                    if isempty(member_dists)
+                        # single-group partitions record no distances; the rep is its own centroid
+                        member_dists = zeros(length(concat_groups[partitioned_rep]))
+                    end
+                    for member_dist in member_dists
+                        push!(updated_dists,member_dist+offset)
+                    end
+                else
+                    # medoid lists members excluding the representative
+                    offset = D[index_map[partitioned_rep],index_map[merged_rep]]
+                    j = 0 # position in partition_member_dists, which skips the partitioned rep
+                    for member in concat_groups[partitioned_rep]
+                        if member == partitioned_rep
+                            if partitioned_rep != merged_rep
+                                push!(updated_dists,offset)
+                            end
+                        else
+                            j += 1
+                            push!(updated_dists,partition_member_dists[partitioned_rep][j]+offset)
+                        end
+                    end
+                end
+            end
+            merged_distances_dict[merged_rep] = updated_dists
+        end
+
         optimized_groups = Dict(id => reduce(vcat,(concat_groups[m] for m in group)) for (id,group) in optimized_groups)
         direct_groupsize_dict = Dict(id => length(group) for (id,group) in optimized_groups) # members = previous level
 
@@ -121,8 +159,8 @@ module GroupAggregation
             groups=optimized_groups,
             direct_groupsize_dict=direct_groupsize_dict,
             total_groupsize_dict=total_groupsize_dict,
-            distances_dict=distances_dict,
-            specificity_dict=specificity_dict,
+            distances_dict=merged_distances_dict,
+            specificity_dict=Dict(id => Int32[] for id in keys(optimized_groups)),
             threshold=threshold,
             n_comparisons=n_comparisons,
             cache_dict=cache_dict
