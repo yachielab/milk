@@ -8,8 +8,10 @@ module Recursion
     using ..GroupAggregation: group_aggregation
     using ..GroupStratification: partitioned_group_stratification,stratification_process_direct_execution
     using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
-                          write_group_results,load_milk_cache
-    export recursive_processing_framework,recursive_processing_direct_execution
+                          write_group_results,load_milk_cache,load_group_spreads
+
+    export recursive_processing_framework,
+           recursive_processing_direct_execution
 
 
     function recursive_processing_framework(;input_path,label,invariant_args)
@@ -73,16 +75,17 @@ module Recursion
         n = length(data_dict)
 
         cache_dict = invariant_args["cache-size"] >= 1 ? load_milk_cache(representatives_path,data_dict,groupsize_dict) : nothing
-
+        spread_dict = load_group_spreads(representatives_path)
         i = iteration
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
         while n > invariant_args["sample-size"]
             @info "Iteration: $i ($n objects)"
             flush(stdout)
             n_previous = n
-            data_dict,groupsize_dict,cache_dict = stratification_process_direct_execution(
+            data_dict,groupsize_dict,cache_dict,spread_dict = stratification_process_direct_execution(
                 data_dict=data_dict,
                 groupsize_dict=groupsize_dict,
+                spread_dict=spread_dict,
                 perc=invariant_args["percentile"],
                 cache_dict=cache_dict,
                 cache_size=invariant_args["cache-size"],

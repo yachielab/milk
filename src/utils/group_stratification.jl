@@ -6,10 +6,10 @@ module GroupStratification
     using ..FileHandling: load_milk_binaries,write_milk_binaries,
                           write_group_results,open_file_write,
                           metadata_path,binary_path,group_meta_path,
-                          GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache
+                          GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache,load_group_spreads
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance
     using ..HPC: submit_stratification_batch_array_jobs
-    using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold
+    using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,average_cost_update
 
     export stratification_process_direct_execution,
            stratification_process_distributed_execution,
@@ -17,6 +17,7 @@ module GroupStratification
            batch_group_stratification_hpc_mode,
            ward_stratification,
            medoid_stratification,
+           average_stratification,
            update_cache
 
     function partitioned_group_stratification(;batches,files,threshold,label,partition_dir,invariant_args)
@@ -73,7 +74,7 @@ module GroupStratification
 
     end
 
-    function stratification_process_direct_execution(;data_dict,groupsize_dict,perc,cache_dict,cache_size,distance_function,linkage,label,output_dir)
+    function stratification_process_direct_execution(;data_dict,groupsize_dict,spread_dict,perc,cache_dict,cache_size,distance_function,linkage,label,output_dir)
         """
         This is only called when performing direct execution of recursive iterations.
         In such cases, there is only a single file to work with, so no need to distribute computing.
@@ -87,8 +88,13 @@ module GroupStratification
             balanced = linkage == "ward_balanced"
             optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
+            optimized_spread_dict = nothing
+        elseif linkage == "average"
+            optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,threshold = average_stratification(data_dict,groupsize_dict,spread_dict,D,index_map,nothing,perc)
+            specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
         else
             optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+            optimized_spread_dict = nothing
         end
         direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
         total_groupsize_dict = Dict(id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups)
@@ -121,7 +127,7 @@ module GroupStratification
             n_comparisons=n_comparisons,
             cache_dict=cache_dict
         )
-        return optimized_dict,total_groupsize_dict,cache_dict
+        return optimized_dict,total_groupsize_dict,cache_dict,optimized_spread_dict
     end
 
     """
@@ -190,6 +196,7 @@ module GroupStratification
 
         n_comparisons = 0
         data_dict,groupsize_dict = load_milk_binaries(path)
+        spread_dict = load_group_spreads(path)
         cache_dict = cache_size >= 1 ? load_milk_cache(path,data_dict,groupsize_dict) : nothing
         if length(data_dict) < 2
             representatives_path = joinpath(output_dir,"$(label).representatives.ids")
@@ -200,7 +207,7 @@ module GroupStratification
                 touch(metadata_path(groups_path))
             else
                 representative_id = collect(keys(data_dict))[1]
-                write_milk_binaries(data_dict,groupsize_dict,representatives_path;cache_dict=cache_dict)
+                write_milk_binaries(data_dict,groupsize_dict,representatives_path;spread_dict=spread_dict,cache_dict=cache_dict)
                 write_group_results(
                     path=groups_path,
                     label=label,
@@ -233,8 +240,13 @@ module GroupStratification
                 balanced = linkage == "ward_balanced"
                 optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc,balanced)
                 specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
+                optimized_spread_dict = nothing
+            elseif linkage == "average"
+                optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,threshold = average_stratification(data_dict,groupsize_dict,spread_dict,D,index_map,threshold,perc)
+                specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
             else
                 optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+                optimized_spread_dict = nothing
             end
             direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
             total_groupsize_dict = Dict( id => sum(groupsize_dict[m] for m in group) for (id,group) in optimized_groups )
@@ -251,7 +263,7 @@ module GroupStratification
             representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
             cache_dict = cache_size >= 1 ? update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function) : nothing
-            write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;cache_dict=cache_dict)
+            write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;spread_dict=optimized_spread_dict,cache_dict=cache_dict)
             write_group_results(
                 path=groups_path,
                 label=label,
@@ -307,6 +319,46 @@ module GroupStratification
         end
         
         return representative_dict,groups_dict,distances_dict,threshold
+    end
+
+
+    """
+    Average linkage (UPGMA on squared Euclidean distance). Each group carries its centroid, size and spread
+    (mean squared distance of its cells to the centroid), which makes the average squared distance between
+    any two groups exact (see compute_average_cost_matrix). Also returns each new group's spread.
+    """
+    function average_stratification(data_dict,groupsize_dict,spread_dict,D,index_map,threshold,p)
+        ids = Vector{String}(undef,length(index_map))
+        for (id,i) in index_map
+            ids[i] = id
+        end
+
+        sizes = [groupsize_dict[id] for id in ids]
+        spreads = [spread_dict[id] for id in ids]
+        C = compute_average_cost_matrix(D,spreads)
+        if isnothing(threshold)
+            threshold = ward_percentile_threshold(C,p)
+        end
+        groups = ward_groups(C,threshold,sizes;update=average_cost_update)
+
+        representative_dict = Dict{String,Vector{Float32}}()
+        groups_dict = Dict{String,Vector{String}}()
+        distances_dict = Dict{String,Vector{Float32}}()
+        representative_spread_dict = Dict{String,Float64}()
+        for group in groups
+            weights = sizes[group]
+            centroid = sum(weights[x]*data_dict[ids[g]] for (x,g) in enumerate(group)) / sum(weights)
+            dists = [compute_euclidean_distance(data_dict[ids[g]],centroid) for g in group]
+            representative_id = ids[group[argmin(dists)]] # named after the member closest to the centroid
+            # merged spread: each member's own spread plus its squared offset to the new centroid, size-weighted
+            spread = sum(weights[x]*(spreads[g]+dists[x]^2) for (x,g) in enumerate(group)) / sum(weights)
+
+            representative_dict[representative_id] = centroid
+            groups_dict[representative_id] = ids[group]
+            distances_dict[representative_id] = dists
+            representative_spread_dict[representative_id] = spread
+        end
+        return representative_dict,groups_dict,distances_dict,representative_spread_dict,threshold
     end
 
     function _soft_kernel_density(D,sizes,threshold)

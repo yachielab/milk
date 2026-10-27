@@ -28,7 +28,9 @@ module FileHandling
         cache_meta_path,
         cache_binary_path,
         load_milk_cache,
-        count_rows
+        count_rows,
+        load_group_spreads,
+        mv_milk_files
 
 
     ########## inline helpers ##########
@@ -174,7 +176,18 @@ module FileHandling
         return data_dict,groupsize_dict
     end
 
-    function write_milk_binaries(data_dict,groupsize_dict,ids_path;cache_dict=nothing)
+    function load_group_spreads(ids_path)
+        """ group id => spread (mean squared distance of the group's cells to its centroid) """
+        spread_dict = Dict{String,Float64}()
+        for line in eachline(group_meta_path(ids_path))
+            fields = split(line,'\t')
+            spread_dict[String(fields[1])] = parse(Float64,fields[3])
+        end
+        return spread_dict
+    end
+
+    function write_milk_binaries(data_dict,groupsize_dict,ids_path;
+                                 spread_dict=nothing,cache_dict=nothing)
         cache_flag = !isnothing(cache_dict)
         cache_meta_io = cache_flag ? open(cache_meta_path(ids_path),"w") : nothing
         cache_bin_io = cache_flag ? open(cache_binary_path(ids_path),"w") : nothing
@@ -182,17 +195,20 @@ module FileHandling
             open(binary_path(ids_path),"w") do binary_io
                 open(group_meta_path(ids_path),"w") do group_meta_io
                     for (id,vec) in data_dict
+                        spread = isnothing(spread_dict) ? 0.0 : spread_dict[id]
                         println(id_io,id)
                         write(binary_io,vec)
                         if cache_flag
                             cache = cache_dict[id]
-                            println(group_meta_io,id,'\t',groupsize_dict[id],'\t',length(cache.cell_ids))
+                            fields = [id,groupsize_dict[id],spread,length(cache.cell_ids)]
+                            println(group_meta_io,join(fields,"\t"))
                             for k in eachindex(cache.cell_ids)
                                 println(cache_meta_io,cache.cell_ids[k],'\t',cache.subgroup_sizes[k],'\t',cache.subgroup_radii[k])
                                 write(cache_bin_io,cache.vecs[k])
                             end
                         else
-                            println(group_meta_io,id,'\t',groupsize_dict[id])
+                            fields = [id,groupsize_dict[id],spread]
+                            println(group_meta_io,join(fields,"\t"))
                         end
                     end
                 end
@@ -236,7 +252,7 @@ module FileHandling
         open(cache_meta_path(ids_path)) do cache_meta_io
             open(cache_binary_path(ids_path)) do cache_bin_io
                 for line in eachline(group_meta_path(ids_path))
-                    id,_,n_cached = split(line,'\t')
+                    id,_,_,n_cached = split(line,'\t')
                     n_cached = parse(Int,n_cached)
                     if isnothing(keep_ids) || String(id) in keep_ids
                         cache_dict[String(id)] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,d)
@@ -267,7 +283,8 @@ module FileHandling
                             end
                             println(id_io,entry[1])
                             write(binary_io,vec)
-                            println(group_meta_io,entry[1],'\t',1)
+                            fields = [entry[1],1,0.0]
+                            println(group_meta_io,join(fields,"\t"))
                         end
                     end
                 end
@@ -297,9 +314,11 @@ module FileHandling
         function _write_partition()
             path = _get_partitioned_input_path(p)
 
-            write_milk_binaries(data_dict,groupsize_dict,path;cache_dict=(cache_flag ? cache_dict : nothing))
+            write_milk_binaries(data_dict,groupsize_dict,path;spread_dict=spread_dict,
+                                cache_dict=(cache_flag ? cache_dict : nothing))
             empty!(data_dict)
             empty!(groupsize_dict)
+            empty!(spread_dict)
             empty!(cache_dict)
             n_rows = 0
             p += 1
@@ -312,6 +331,7 @@ module FileHandling
         p = 1
         data_dict = Dict{String,Vector{Float32}}()
         groupsize_dict = Dict{String,Int}()
+        spread_dict = Dict{String,Float64}()
         cache_dict = Dict{String,GroupCache}()
         n_rows = 0
 
@@ -323,9 +343,10 @@ module FileHandling
                 end
                 data_dict[id] = copy(vec)
                 groupsize_dict[id] = parse(Int,fields[2])
+                spread_dict[id] = parse(Float64,fields[3])
 
                 if cache_flag
-                    n_cached = parse(Int,fields[3])
+                    n_cached = parse(Int,fields[4])
                     cache_dict[id] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,length(vec))
                     n_rows += n_cached
                 else
@@ -345,6 +366,17 @@ module FileHandling
             close(cache_bin_io)
         end
         return partition_dir
+    end
+
+    function mv_milk_files(src_ids_path,dst_ids_path;force=false)
+        """ moves .ids/.bin/.group.tsv, plus .cache.tsv/.cache.bin if present """
+        mv(src_ids_path,dst_ids_path;force=force)
+        mv(binary_path(src_ids_path),binary_path(dst_ids_path);force=force)
+        mv(group_meta_path(src_ids_path),group_meta_path(dst_ids_path);force=force)
+        if isfile(cache_meta_path(src_ids_path))
+            mv(cache_meta_path(src_ids_path),cache_meta_path(dst_ids_path);force=force)
+            mv(cache_binary_path(src_ids_path),cache_binary_path(dst_ids_path);force=force)
+        end
     end
 
     function batch_partitioned_files(partition_dir,label,invariant_args)
@@ -367,13 +399,7 @@ module FileHandling
                 for path in batch
                     updated_path = joinpath(batch_dir,basename(path))
                     push!(files,updated_path)
-                    mv(path,updated_path)
-                    mv(binary_path(path),binary_path(updated_path))
-                    mv(group_meta_path(path),group_meta_path(updated_path))
-                    if isfile(cache_meta_path(path))
-                        mv(cache_meta_path(path),cache_meta_path(updated_path))
-                        mv(cache_binary_path(path),cache_binary_path(updated_path))
-                    end
+                    mv_milk_files(path,updated_path)
                 end
             end
         else
@@ -383,13 +409,7 @@ module FileHandling
             for path in paths
                 updated_path = joinpath(batch_dir,basename(path))
                 push!(files,updated_path)
-                mv(path,updated_path)
-                mv(binary_path(path),binary_path(updated_path))
-                mv(group_meta_path(path),group_meta_path(updated_path))
-                if isfile(cache_meta_path(path))
-                    mv(cache_meta_path(path),cache_meta_path(updated_path))
-                    mv(cache_binary_path(path),cache_binary_path(updated_path))
-                end
+                mv_milk_files(path,updated_path)
             end
         end
         return files,batches
@@ -464,7 +484,9 @@ module FileHandling
         ids_path = joinpath(milk_input_dir,"$(file_label).ids")
         source_path = joinpath(milk_input_dir,"$(file_label).source")
         source = "$(filesize(csv_path)),$(mtime(csv_path))"
-        if isfile(source_path) && read(source_path,String) == source && isfile(group_meta_path(ids_path))
+
+        if isfile(source_path) && read(source_path,String) == source && isfile(group_meta_path(ids_path)) &&
+           length(split(readline(group_meta_path(ids_path)),'\t')) == 3
             @info "Using existing MILK binaries: $(ids_path)"
             return ids_path
         end
@@ -475,9 +497,7 @@ module FileHandling
         mkpath(milk_input_dir)
         tmp_ids_path = joinpath(milk_input_dir,"$(file_label).tmp_$(getpid()).ids")
         convert_input_csv_to_binaries(csv_path,tmp_ids_path)
-        mv(tmp_ids_path,ids_path,force=true)
-        mv(binary_path(tmp_ids_path),binary_path(ids_path),force=true)
-        mv(group_meta_path(tmp_ids_path),group_meta_path(ids_path),force=true)
+        mv_milk_files(tmp_ids_path,ids_path;force=true)
         write(source_path,source)
         return ids_path
     end

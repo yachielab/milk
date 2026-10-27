@@ -6,8 +6,9 @@ module GroupAggregation
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix
     using ..FileHandling: load_milk_binaries,write_milk_binaries,load_groups_as_dictionary,
                            write_group_results,metadata_path,binary_path,group_meta_path,
-                           cache_meta_path,cache_binary_path,count_rows,load_milk_cache
-    using ..GroupStratification: ward_stratification,medoid_stratification,update_cache
+                           cache_meta_path,cache_binary_path,count_rows,load_milk_cache,mv_milk_files,load_group_spreads
+    using ..GroupStratification: ward_stratification,medoid_stratification,average_stratification,update_cache
+    
     export group_aggregation
 
     function concatenate_files(;paths,concatenated_path)
@@ -63,13 +64,7 @@ module GroupAggregation
                 input_path=input_path
             )
         else
-            mv(concat_representatives_path,representatives_path)
-            mv(binary_path(concat_representatives_path),binary_path(representatives_path))
-            mv(group_meta_path(concat_representatives_path),group_meta_path(representatives_path))
-            if isfile(cache_meta_path(concat_representatives_path))
-                mv(cache_meta_path(concat_representatives_path),cache_meta_path(representatives_path))
-                mv(cache_binary_path(concat_representatives_path),cache_binary_path(representatives_path))
-            end
+            mv_milk_files(concat_representatives_path,representatives_path)
             mv(concat_groups_path,groups_path)
             mv(metadata_path(concat_groups_path),metadata_path(groups_path))
         end
@@ -95,8 +90,13 @@ module GroupAggregation
             balanced = linkage == "ward_balanced"
             optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
+            optimized_spread_dict = nothing
+        elseif linkage == "average"
+            concat_spread_dict = load_group_spreads(concat_representatives_path)
+            optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,_ = average_stratification(concat_representatives_dict,concat_groupsize_dict,concat_spread_dict,D,index_map,threshold,percentile)
         else
             optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold;radius_dict=concat_groups_info["radius"])
+            optimized_spread_dict = nothing
         end
         
         total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups) # members = partition reps
@@ -109,8 +109,8 @@ module GroupAggregation
         for (merged_rep,partitioned_reps) in optimized_groups
             updated_dists = Float32[]
             for (i,partitioned_rep) in enumerate(partitioned_reps)
-                if startswith(linkage,"ward")
-                    # ward lists every member, representative included
+                if startswith(linkage,"ward") || linkage == "average"
+                    # ward and average list every member (to the centroid), representative included
                     offset = distances_dict[merged_rep][i] # partition centroid -> merged centroid
                     member_dists = partition_member_dists[partitioned_rep]
                     if isempty(member_dists)
@@ -148,7 +148,7 @@ module GroupAggregation
         @info "\t[MERGE: $label] $G groups; $N objects; threshold: $(round(threshold,digits=4)); runtime: $(round(time()-start_time,digits=2)) seconds"
         flush(stdout)
     
-        write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;cache_dict=cache_dict)
+        write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;spread_dict=optimized_spread_dict,cache_dict=cache_dict)
         write_group_results(
             path=groups_path,
             label=label,

@@ -2,7 +2,11 @@ module Ward
 
     using StatsBase
 
-    export ward_groups,ward_percentile_threshold,compute_ward_cost_matrix
+    export ward_groups,
+           ward_percentile_threshold,
+           compute_ward_cost_matrix,
+           compute_average_cost_matrix,
+           average_cost_update
 
     """
     Lance-Williams formula, Ward linkage: squared merge cost update so you don't have to recompute cost
@@ -43,7 +47,35 @@ module Ward
         return C
     end
 
-    function ward_groups(C,threshold,groupsizes)
+
+    """
+    Average linkage on squared Euclidean distance (UPGMA on d^2):
+        cost(i,j) = mean squared distance over all cell pairs between groups i and j
+                  = squared centroid distance + spread_i + spread_j
+    spread = mean squared distance of a group's cells to its centroid (0 for a single cell)
+    """
+    function compute_average_cost_matrix(D,spreads)
+        n = size(D,1)
+        C = zeros(Float32,n,n)
+        for j in 2:n
+            for i in 1:j-1
+                c = D[i,j]^2 + spreads[i] + spreads[j]
+                C[i,j] = c
+                C[j,i] = c
+            end
+        end
+        return C
+    end
+
+    """
+    Lance-Williams update for average linkage: cost to a merged group is the size-weighted
+    mean of the costs to its two parts (c_ij and n_k unused; same signature as ward_cost_update)
+    """
+    function average_cost_update(c_ik,c_jk,c_ij,n_i,n_j,n_k)
+        return (n_i*c_ik + n_j*c_jk)/(n_i+n_j)
+    end
+
+    function ward_groups(C,threshold,groupsizes;update=ward_cost_update)
         n = size(C,1)
         if n < 2
             return [[1]]
@@ -107,7 +139,7 @@ module Ward
                 if k == i || k == j
                     continue
                 end
-                c_update = ward_cost_update(C[i,k],C[j,k],c_ij,n_i,n_j,sizes[k])
+                c_update = update(C[i,k],C[j,k],c_ij,n_i,n_j,sizes[k])
                 C[i,k] = c_update
                 C[k,i] = c_update
             end

@@ -4,8 +4,8 @@ module PairwiseComparisons
     using Distances
     using Distributed
 
-    using ..FileHandling: load_milk_binaries,load_milk_cache,cache_meta_path
-    using ..Ward: compute_ward_cost_matrix,ward_percentile_threshold
+    using ..FileHandling: load_milk_binaries,load_milk_cache,cache_meta_path,load_group_spreads
+    using ..Ward: compute_ward_cost_matrix,ward_percentile_threshold,compute_average_cost_matrix
 
     export map_distance_function,
            compute_pairwise_distance_matrix,
@@ -150,21 +150,29 @@ module PairwiseComparisons
             return nothing
         end
         distance_function = map_distance_function(metric)
-        if (!startswith(linkage,"ward") && isfile(cache_meta_path(input_path)))
+        centroid_linkage = startswith(linkage,"ward") || linkage == "average"
+        if (!centroid_linkage && isfile(cache_meta_path(input_path)))
             cache_dict = load_milk_cache(input_path,data_dict,groupsize_dict)
         else
             cache_dict = nothing
         end
-        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function,!startswith(linkage,"ward");cache_dict=cache_dict)
-        if startswith(linkage,"ward")
-            balanced = linkage == "ward_balanced"
+        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function,!centroid_linkage;cache_dict=cache_dict)
+        if centroid_linkage
             ids = Vector{String}(undef,length(index_map))
             for (id,i) in index_map
                 ids[i] = id
             end
-            sizes = [groupsize_dict[id] for id in ids]
-            cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
-            threshold = ward_percentile_threshold(compute_ward_cost_matrix(D,cost_sizes),p)
+            if startswith(linkage,"ward")
+                balanced = linkage == "ward_balanced"
+                sizes = [groupsize_dict[id] for id in ids]
+                cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
+                C = compute_ward_cost_matrix(D,cost_sizes)
+            else
+                spread_dict = load_group_spreads(input_path)
+                spreads = [spread_dict[id] for id in ids]
+                C = compute_average_cost_matrix(D,spreads)
+            end
+            threshold = ward_percentile_threshold(C,p)
         end
         return threshold
     end
