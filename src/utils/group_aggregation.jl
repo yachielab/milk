@@ -86,9 +86,8 @@ module GroupAggregation
         concat_groups = concat_groups_info["groups"]
 
         D,index_map,_,n_comparisons = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false;cache_dict=input_cache_dict)
-        if startswith(linkage,"ward")
-            balanced = linkage == "ward_balanced"
-            optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
+        if linkage == "ward"
+            optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
             optimized_spread_dict = nothing
         elseif linkage == "average"
@@ -109,7 +108,7 @@ module GroupAggregation
         for (merged_rep,partitioned_reps) in optimized_groups
             updated_dists = Float32[]
             for (i,partitioned_rep) in enumerate(partitioned_reps)
-                if startswith(linkage,"ward") || linkage == "average"
+                if linkage == "ward" || linkage == "average"
                     # ward and average list every member (to the centroid), representative included
                     offset = distances_dict[merged_rep][i] # partition centroid -> merged centroid
                     member_dists = partition_member_dists[partitioned_rep]

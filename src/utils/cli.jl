@@ -52,7 +52,7 @@ module CLI
             "--linkage"
                 arg_type = String
                 default = "ward"
-                help = "Grouping linkage. Permissible values: {'medoid','ward','ward_balanced','average'}. 'ward', 'ward_balanced' and 'average' (UPGMA) require '--metric euclidean', ignore '--cache-size', and merge on squared Euclidean cost; thresholds are reported as its square root."
+                help = "Grouping linkage. Permissible values: {'medoid','ward','average'}. 'ward' and 'average' (UPGMA) require '--metric euclidean', ignore '--cache-size', and merge on squared Euclidean cost; thresholds are reported as its square root."
             "--verbose"
                 action = :store_true
                 help = "Amount of information written to standard out/err."
@@ -190,17 +190,18 @@ module CLI
                 error("Invalid '--stratification-output-dir' specified ($(args["stratification-output-dir"])).")
             end
         end
-        if !(args["linkage"] in ("medoid","ward","ward_balanced","average"))
+        if !(args["linkage"] in ("medoid","ward","average"))
             error("Invalid '--linkage' specified ($(args["linkage"])).")
         end
-        if (startswith(args["linkage"],"ward") || args["linkage"] == "average") && args["metric"] != "euclidean"
+
+        centroid_linkage = args["linkage"] == "ward" || args["linkage"] == "average"
+        if centroid_linkage && args["metric"] != "euclidean"
             error("$(args["linkage"]) linkage requires '--metric euclidean' (got $(args["metric"])).")
         end
         if args["cache-size"] < 0
             error("'--cache-size' must be >= 0 (got $(args["cache-size"])).")
         end
 
-        centroid_linkage = startswith(args["linkage"],"ward") || args["linkage"] == "average"
         if centroid_linkage && args["cache-size"] > 0
             @warn "$(args["linkage"]) linkage does not use the cache; ignoring '--cache-size $(args["cache-size"])' and setting it to 0."
             args["cache-size"] = 0

@@ -5,7 +5,7 @@ module PairwiseComparisons
     using Distributed
 
     using ..FileHandling: load_milk_binaries,load_milk_cache,cache_meta_path,load_group_spreads
-    using ..Ward: compute_ward_cost_matrix,ward_percentile_threshold,compute_average_cost_matrix
+    using ..Linkage: compute_ward_cost_matrix,ward_percentile_threshold,compute_average_cost_matrix
 
     export map_distance_function,
            compute_pairwise_distance_matrix,
@@ -150,7 +150,7 @@ module PairwiseComparisons
             return nothing
         end
         distance_function = map_distance_function(metric)
-        centroid_linkage = startswith(linkage,"ward") || linkage == "average"
+        centroid_linkage = linkage == "ward" || linkage == "average"
         if (!centroid_linkage && isfile(cache_meta_path(input_path)))
             cache_dict = load_milk_cache(input_path,data_dict,groupsize_dict)
         else
@@ -162,11 +162,9 @@ module PairwiseComparisons
             for (id,i) in index_map
                 ids[i] = id
             end
-            if startswith(linkage,"ward")
-                balanced = linkage == "ward_balanced"
+            if linkage == "ward"
                 sizes = [groupsize_dict[id] for id in ids]
-                cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
-                C = compute_ward_cost_matrix(D,cost_sizes)
+                C = compute_ward_cost_matrix(D,sizes)
             else
                 spread_dict = load_group_spreads(input_path)
                 spreads = [spread_dict[id] for id in ids]

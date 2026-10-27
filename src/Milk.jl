@@ -14,7 +14,7 @@ module Milk
 
     include("utils/file_handling.jl")
     include("utils/hpc.jl")
-    include("utils/ward.jl")
+    include("utils/linkage.jl")
     include("utils/pairwise_comparisons.jl")
     include("utils/group_stratification.jl")
     include("utils/group_aggregation.jl")
@@ -30,7 +30,7 @@ module Milk
     using .CLI
     using .HPC
     using .Recursion
-    using .Ward
+    using .Linkage
 
     include("main.jl")
     export main

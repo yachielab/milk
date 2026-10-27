@@ -1,4 +1,4 @@
-module Ward
+module Linkage
 
     using StatsBase
 

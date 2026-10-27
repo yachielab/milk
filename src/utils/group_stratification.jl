@@ -9,7 +9,7 @@ module GroupStratification
                           GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache,load_group_spreads
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance
     using ..HPC: submit_stratification_batch_array_jobs
-    using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,average_cost_update
+    using ..Linkage: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,average_cost_update
 
     export stratification_process_direct_execution,
            stratification_process_distributed_execution,
@@ -84,9 +84,8 @@ module GroupStratification
         n_comparisons = 0
         D,index_map,threshold,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function;cache_dict=(cache_size >= 1 ? cache_dict : nothing))
         n_comparisons += x
-        if startswith(linkage,"ward")
-            balanced = linkage == "ward_balanced"
-            optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc,balanced)
+        if linkage == "ward"
+            optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
             optimized_spread_dict = nothing
         elseif linkage == "average"
@@ -236,9 +235,8 @@ module GroupStratification
         else
             D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function,false;cache_dict=cache_dict)
             n_comparisons += x
-            if startswith(linkage,"ward")
-                balanced = linkage == "ward_balanced"
-                optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc,balanced)
+            if linkage == "ward"
+                optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc)
                 specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
                 optimized_spread_dict = nothing
             elseif linkage == "average"
@@ -290,19 +288,18 @@ module GroupStratification
         end
     end
 
-    function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p,balanced)
+    function ward_stratification(data_dict,groupsize_dict,D,index_map,threshold,p)
         ids = Vector{String}(undef,length(index_map))
         for (id,i) in index_map
             ids[i] = id
         end
 
         sizes = [groupsize_dict[id] for id in ids]
-        cost_sizes = balanced ? ones(Int,length(sizes)) : copy(sizes)
-        C = compute_ward_cost_matrix(D,cost_sizes)
+        C = compute_ward_cost_matrix(D,sizes)
         if isnothing(threshold)
             threshold = ward_percentile_threshold(C,p)
         end
-        groups = ward_groups(C,threshold,cost_sizes)
+        groups = ward_groups(C,threshold,sizes)
 
         representative_dict = Dict{String,Vector{Float32}}()
         groups_dict = Dict{String,Vector{String}}()
