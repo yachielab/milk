@@ -23,7 +23,7 @@ module Recursion
         if length(files) > 1
             if length(files) > invariant_args["batch-size"]
                 Random.seed!(invariant_args["seed"])
-                sampled_files = sample(files,invariant_args["batch-size"])
+                sampled_files = sample(files,invariant_args["batch-size"];replace=false)
             else
                 sampled_files = files
             end
@@ -72,7 +72,7 @@ module Recursion
         data_dict,groupsize_dict = load_milk_binaries(representatives_path)
         n = length(data_dict)
 
-        cache_dict = load_milk_cache(representatives_path,data_dict,groupsize_dict)
+        cache_dict = invariant_args["cache-size"] >= 1 ? load_milk_cache(representatives_path,data_dict,groupsize_dict) : nothing
 
         i = iteration
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"

@@ -103,13 +103,13 @@ module GroupStratification
 
         @info "\t[$label] $G groups; $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s)); runtime: $(elapsed_time) min"
         
-        cache_dict = update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function)
+        cache_dict = cache_size >= 1 ? update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function) : nothing
         groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
         write_group_results(
             path=groups_path,
             label=label,
             stage="direct_stratification_process",
-            n_cached=sum(length(cache.cell_ids) for cache in values(cache_dict)),
+            n_cached=isnothing(cache_dict) ? G : sum(length(cache.cell_ids) for cache in values(cache_dict)),
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
