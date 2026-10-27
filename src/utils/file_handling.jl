@@ -16,15 +16,19 @@ module FileHandling
         clean_directory,
         final_cleanup,
         write_values_as_txt,
-        attempt_to_cache_file,
         metadata_path,
         binary_path,
-        groupsize_path,
+        group_meta_path,
         stream_binary_file,
         load_milk_binaries,
         write_milk_binaries,
         convert_input_csv_to_binaries,
-        prepare_milk_input
+        prepare_milk_input,
+        GroupCache,
+        cache_meta_path,
+        cache_binary_path,
+        load_milk_cache,
+        count_rows
 
 
     ########## inline helpers ##########
@@ -39,13 +43,28 @@ module FileHandling
         return replace(ids_path,r"\.ids$" => ".bin")
     end
 
-    function groupsize_path(ids_path)
+    function group_meta_path(ids_path)
         if !endswith(ids_path,".ids")
             error("Expected a .ids path: $(ids_path)")
         end
-        return replace(ids_path,r"\.ids$" => ".sizes")
+        return replace(ids_path,r"\.ids$" => ".group.tsv")
+    end
+
+    function cache_meta_path(ids_path)
+        return replace(ids_path,r"\.ids$" => ".cache.tsv")
+    end
+
+    function cache_binary_path(ids_path)
+        return replace(ids_path,r"\.ids$" => ".cache.bin")
     end
     ####################################
+
+    function count_rows(ids_path)
+        if !isfile(cache_meta_path(ids_path))
+            return countlines(ids_path)
+        end
+        return countlines(cache_meta_path(ids_path))
+    end
 
     function load_groups_as_dictionary(path)
 
@@ -78,22 +97,22 @@ module FileHandling
         return groups_dict
     end
 
-    function write_group_metadata(;path,label,stage,cache_label,threshold,n_input_objects,n_groups,n_comparisons)
+    function write_group_metadata(;path,label,stage,n_cached,threshold,n_input_objects,n_groups,n_comparisons)
         open(metadata_path(path),"w") do file
-            # columns: label, stage, cache, threshold, n_input_objects, n_groups, n_comparisons
-            fields = [label,stage,cache_label,threshold,n_input_objects,n_groups,n_comparisons]
+            # columns: label, stage, n_cached, threshold, n_input_objects, n_groups, n_comparisons
+            fields = [label,stage,n_cached,threshold,n_input_objects,n_groups,n_comparisons]
             println(file,join(fields,'\t'))
         end
     end
 
-    function write_group_results(;path,label,stage,cache_label,n_input_objects,n_groups,groups,direct_groupsize_dict,
-                                  total_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons)
+    function write_group_results(;path,label,stage,n_cached,n_input_objects,n_groups,groups,direct_groupsize_dict,
+                                  total_groupsize_dict,distances_dict,specificity_dict,threshold,n_comparisons,cache_dict=nothing)
 
         write_group_metadata(
             path=path,
             label=label,
             stage=stage,
-            cache_label=cache_label,
+            n_cached=n_cached,
             threshold=threshold,
             n_input_objects=n_input_objects,
             n_groups=n_groups,
@@ -111,6 +130,12 @@ module FileHandling
                     "distances" => distances_dict[representative_id],
                     "specificity" => specificity_dict[representative_id]
                 )
+                if !isnothing(cache_dict)
+                    cache = cache_dict[representative_id]
+                    group_info["cache_ids"] = cache.cell_ids
+                    group_info["cache_sizes"] = cache.subgroup_sizes
+                    group_info["cache_radii"] = cache.subgroup_radii
+                end
                 JSON.print(file,group_info)
                 println(file)
             end
@@ -139,32 +164,96 @@ module FileHandling
             data_dict[id] = copy(vec)
         end
         groupsize_dict = Dict{String,Int}()
-        for line in eachline(groupsize_path(ids_path))
-            id,size = split(line,",")
+        for line in eachline(group_meta_path(ids_path))
+            id,size = split(line,'\t')[1:2]
             groupsize_dict[id] = parse(Int,size)
         end
         return data_dict,groupsize_dict
     end
 
-    function write_milk_binaries(data_dict,groupsize_dict,ids_path)
+    function write_milk_binaries(data_dict,groupsize_dict,ids_path;cache_dict=nothing)
+        cache_flag = !isnothing(cache_dict)
+        cache_meta_io = cache_flag ? open(cache_meta_path(ids_path),"w") : nothing
+        cache_bin_io = cache_flag ? open(cache_binary_path(ids_path),"w") : nothing
         open(ids_path,"w") do id_io
             open(binary_path(ids_path),"w") do binary_io
-                open(groupsize_path(ids_path),"w") do sizes_io
+                open(group_meta_path(ids_path),"w") do group_meta_io
                     for (id,vec) in data_dict
                         println(id_io,id)
                         write(binary_io,vec)
-                        println(sizes_io,id,",",groupsize_dict[id])
+                        if cache_flag
+                            cache = cache_dict[id]
+                            println(group_meta_io,id,'\t',groupsize_dict[id],'\t',length(cache.cell_ids))
+                            for k in eachindex(cache.cell_ids)
+                                println(cache_meta_io,cache.cell_ids[k],'\t',cache.subgroup_sizes[k],'\t',cache.subgroup_radii[k])
+                                write(cache_bin_io,cache.vecs[k])
+                            end
+                        else
+                            println(group_meta_io,id,'\t',groupsize_dict[id])
+                        end
                     end
                 end
             end
         end
+        if cache_flag
+            close(cache_meta_io)
+            close(cache_bin_io)
+        end
+    end
+
+    function _read_group_cache(cache_meta_io,cache_bin_io,n_cached,d)
+        """ reads the next n_cached cached cells (one group) from open cache files
+        """
+        cache = GroupCache(String[],Vector{Float32}[],Int[],Float64[])
+        for _ in 1:n_cached
+            cell_id,subgroup_size,subgroup_radius = split(readline(cache_meta_io),'\t')
+            vec = Vector{Float32}(undef,d)
+            read!(cache_bin_io,vec)
+            push!(cache.cell_ids,String(cell_id))
+            push!(cache.vecs,vec)
+            push!(cache.subgroup_sizes,parse(Int,subgroup_size))
+            push!(cache.subgroup_radii,parse(Float64,subgroup_radius))
+        end
+        return cache
+    end
+
+    function load_milk_cache(ids_path,data_dict,groupsize_dict;keep_ids=nothing)
+        """ group id => GroupCache. Without cache files, each group in data_dict is cached as its own representative.
+        With keep_ids, only those groups are loaded; the rest of the file is streamed past (memory bounded by keep_ids).
+        """
+        cache_dict = Dict{String,GroupCache}()
+        if !isfile(cache_meta_path(ids_path))
+            for (id,vec) in data_dict
+                # representative caching
+                cache_dict[id] = GroupCache([id],[vec],[groupsize_dict[id]],[0.0])
+            end
+            return cache_dict
+        end
+        d = isempty(data_dict) ? 0 : length(first(values(data_dict)))
+        open(cache_meta_path(ids_path)) do cache_meta_io
+            open(cache_binary_path(ids_path)) do cache_bin_io
+                for line in eachline(group_meta_path(ids_path))
+                    id,_,n_cached = split(line,'\t')
+                    n_cached = parse(Int,n_cached)
+                    if isnothing(keep_ids) || String(id) in keep_ids
+                        cache_dict[String(id)] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,d)
+                    else
+                        for _ in 1:n_cached
+                            readline(cache_meta_io)
+                        end
+                        skip(cache_bin_io,4*d*n_cached) # Float32
+                    end
+                end
+            end
+        end
+        return cache_dict
     end
 
     function convert_input_csv_to_binaries(csv_path,ids_path)
         nan_count = 0
         open(ids_path,"w") do id_io
             open(binary_path(ids_path),"w") do binary_io
-                open(groupsize_path(ids_path),"w") do sizes_io
+                open(group_meta_path(ids_path),"w") do group_meta_io
                     open_file_read(csv_path,gzip=endswith(csv_path,".gz")) do instream
                         for line in eachline(instream)
                             entry = split(line,",")
@@ -175,7 +264,7 @@ module FileHandling
                             end
                             println(id_io,entry[1])
                             write(binary_io,vec)
-                            println(sizes_io,entry[1],",",1)
+                            println(group_meta_io,entry[1],'\t',1)
                         end
                     end
                 end
@@ -186,36 +275,71 @@ module FileHandling
         end
     end
 
+    struct GroupCache
+        cell_ids::Vector{String}
+        vecs::Vector{Vector{Float32}}
+        subgroup_sizes::Vector{Int}
+        subgroup_radii::Vector{Float64}
+    end
+
     function partition_input_file(input_path,label,invariant_args)
         partition_dir = joinpath(invariant_args["output-dir"],"$(label).split")
         mkpath(partition_dir)
 
-        function get_partitioned_input_path(p)
+        function _get_partitioned_input_path(p)
             partition_label = "partition_$(lpad(string(p),8,'0'))"
             return joinpath(partition_dir,"$(label).$(partition_label).ids")
         end
 
+        function _write_partition()
+            path = _get_partitioned_input_path(p)
+
+            write_milk_binaries(data_dict,groupsize_dict,path;cache_dict=(cache_flag ? cache_dict : nothing))
+            empty!(data_dict)
+            empty!(groupsize_dict)
+            empty!(cache_dict)
+            n_rows = 0
+            p += 1
+        end
+
+        cache_flag = isfile(cache_meta_path(input_path))
+        cache_meta_io = cache_flag ? open(cache_meta_path(input_path)) : nothing
+        cache_bin_io = cache_flag ? open(cache_binary_path(input_path)) : nothing
+
         p = 1
         data_dict = Dict{String,Vector{Float32}}()
         groupsize_dict = Dict{String,Int}()
-        open(groupsize_path(input_path)) do sizes_io
+        cache_dict = Dict{String,GroupCache}()
+        n_rows = 0
+
+        open(group_meta_path(input_path)) do group_meta_io
             stream_binary_file(input_path) do id,vec
-                size_id,size = split(readline(sizes_io),",")
-                if size_id != id
-                    error("Row mismatch between $(input_path) and its sizes file: $(id) vs $(size_id)")
+                fields = split(readline(group_meta_io),'\t')
+                if fields[1] != id
+                    error("Row mismatch between $(input_path) and its group file: $(id) vs $(fields[1])")
                 end
                 data_dict[id] = copy(vec)
-                groupsize_dict[id] = parse(Int,size)
-                if length(data_dict) == invariant_args["partition-size"]
-                    write_milk_binaries(data_dict,groupsize_dict,get_partitioned_input_path(p))
-                    empty!(data_dict)
-                    empty!(groupsize_dict)
-                    p += 1
+                groupsize_dict[id] = parse(Int,fields[2])
+
+                if cache_flag
+                    n_cached = parse(Int,fields[3])
+                    cache_dict[id] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,length(vec))
+                    n_rows += n_cached
+                else
+                    n_rows += 1
+                end
+
+                if n_rows >= invariant_args["partition-size"]
+                    _write_partition()
                 end
             end
         end
         if !isempty(data_dict)
-            write_milk_binaries(data_dict,groupsize_dict,get_partitioned_input_path(p))
+            _write_partition()
+        end
+        if cache_flag
+            close(cache_meta_io)
+            close(cache_bin_io)
         end
         return partition_dir
     end
@@ -242,7 +366,11 @@ module FileHandling
                     push!(files,updated_path)
                     mv(path,updated_path)
                     mv(binary_path(path),binary_path(updated_path))
-                    mv(groupsize_path(path),groupsize_path(updated_path))
+                    mv(group_meta_path(path),group_meta_path(updated_path))
+                    if isfile(cache_meta_path(path))
+                        mv(cache_meta_path(path),cache_meta_path(updated_path))
+                        mv(cache_binary_path(path),cache_binary_path(updated_path))
+                    end
                 end
             end
         else
@@ -254,7 +382,11 @@ module FileHandling
                 push!(files,updated_path)
                 mv(path,updated_path)
                 mv(binary_path(path),binary_path(updated_path))
-                mv(groupsize_path(path),groupsize_path(updated_path))
+                mv(group_meta_path(path),group_meta_path(updated_path))
+                if isfile(cache_meta_path(path))
+                    mv(cache_meta_path(path),cache_meta_path(updated_path))
+                    mv(cache_binary_path(path),cache_binary_path(updated_path))
+                end
             end
         end
         return files,batches
@@ -291,20 +423,24 @@ module FileHandling
             if path in exclusion_set continue end
             rm(path)
             rm(binary_path(path))
-            rm(groupsize_path(path))
+            rm(group_meta_path(path))
+            rm(cache_meta_path(path),force=true)
+            rm(cache_binary_path(path),force=true)
         end
         for path in glob("*.input.ids",work_dir)
             if islink(path) && !isfile(path) # broken symlink: its representatives were deleted above
                 rm(path)
                 rm(binary_path(path))
-                rm(groupsize_path(path))
+                rm(group_meta_path(path))
+                rm(cache_meta_path(path),force=true)
+                rm(cache_binary_path(path),force=true)
             end
         end
         return
     end
 
     function final_cleanup(output_dir)
-        for path in [glob("*.ids",output_dir); glob("*.bin",output_dir); glob("*.sizes",output_dir)]
+        for path in [glob("*.ids",output_dir); glob("*.bin",output_dir); glob("*.group.tsv",output_dir); glob("*.cache.tsv",output_dir)]
             rm(path)
         end
         return
@@ -318,24 +454,6 @@ module FileHandling
         end
     end
 
-    function attempt_to_cache_file(path,n,invariant_args)
-        if n <= invariant_args["cache-size-limit"]
-            @info "\tCaching $n objects from the following path: $path" 
-            flush(stdout)
-            return path
-        else
-            return nothing
-        end
-    end
-
-    function attempt_to_load_cache(path)
-        cache_dict = nothing
-        if !isnothing(path) && isfile(path)
-            cache_dict,_ = load_milk_binaries(path)
-        end
-        return cache_dict
-    end
-
     function prepare_milk_input(csv_path,label)
         milk_input_dir = joinpath(dirname(csv_path),"$(label).input")
         file_label = replace(basename(csv_path),r"\.csv(\.gz)?$" => "")
@@ -343,7 +461,7 @@ module FileHandling
         ids_path = joinpath(milk_input_dir,"$(file_label).ids")
         source_path = joinpath(milk_input_dir,"$(file_label).source")
         source = "$(filesize(csv_path)),$(mtime(csv_path))"
-        if isfile(source_path) && read(source_path,String) == source
+        if isfile(source_path) && read(source_path,String) == source && isfile(group_meta_path(ids_path))
             @info "Using existing MILK binaries: $(ids_path)"
             return ids_path
         end
@@ -356,7 +474,7 @@ module FileHandling
         convert_input_csv_to_binaries(csv_path,tmp_ids_path)
         mv(tmp_ids_path,ids_path,force=true)
         mv(binary_path(tmp_ids_path),binary_path(ids_path),force=true)
-        mv(groupsize_path(tmp_ids_path),groupsize_path(ids_path),force=true)
+        mv(group_meta_path(tmp_ids_path),group_meta_path(ids_path),force=true)
         write(source_path,source)
         return ids_path
     end

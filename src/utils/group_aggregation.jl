@@ -5,9 +5,9 @@ module GroupAggregation
 
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix
     using ..FileHandling: load_milk_binaries,write_milk_binaries,load_groups_as_dictionary,
-                           write_group_results,attempt_to_load_cache,metadata_path,binary_path,groupsize_path
-    using ..GroupStratification: ward_stratification,medoid_stratification
-
+                           write_group_results,metadata_path,binary_path,group_meta_path,
+                           cache_meta_path,cache_binary_path,count_rows,load_milk_cache
+    using ..GroupStratification: ward_stratification,medoid_stratification,update_cache
     export group_aggregation
 
     function concatenate_files(;paths,concatenated_path)
@@ -24,7 +24,11 @@ module GroupAggregation
         representatives_paths = sort(glob("*.representatives.ids",partition_dir))
         concatenate_files(paths=representatives_paths,concatenated_path=concat_representatives_path)
         concatenate_files(paths=binary_path.(representatives_paths),concatenated_path=binary_path(concat_representatives_path))
-        concatenate_files(paths=groupsize_path.(representatives_paths),concatenated_path=groupsize_path(concat_representatives_path))
+        concatenate_files(paths=group_meta_path.(representatives_paths),concatenated_path=group_meta_path(concat_representatives_path))
+        if isfile(cache_meta_path(first(representatives_paths)))
+            concatenate_files(paths=cache_meta_path.(representatives_paths),concatenated_path=cache_meta_path(concat_representatives_path))
+            concatenate_files(paths=cache_binary_path.(representatives_paths),concatenated_path=cache_binary_path(concat_representatives_path))
+        end
 
         concat_groups_path = joinpath(invariant_args["output-dir"],"$(label).concatenated.groups.jsonl.gz")
         concatenate_files(paths=sort(glob("*.groups.jsonl.gz",partition_dir)),concatenated_path=concat_groups_path)
@@ -34,56 +38,59 @@ module GroupAggregation
         return concat_representatives_path,concat_groups_path,n_groups
     end
 
-    function group_aggregation(;label,threshold,cache_path,partition_dir,invariant_args)
-        """
-        Aggregation of groups across partitions.
-        """
+    """
+    Aggregation of groups across partitions.
+    """
+    function group_aggregation(;label,threshold,input_path,partition_dir,invariant_args)
         concat_representatives_path,concat_groups_path,n_groups = concatenating_aggregation(label,partition_dir,invariant_args)
         @info "\t$n_groups groups after concatenation across partitioned results."
         flush(stdout)
         
         representatives_path = joinpath(invariant_args["output-dir"],"$(label).representatives.ids")
         groups_path = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
-        if n_groups <= invariant_args["merge-threshold"]
+        if count_rows(concat_representatives_path) <= invariant_args["merge-threshold"]
             stratifying_aggregation(
+                representatives_path=representatives_path,
+                groups_path=groups_path,
                 concat_representatives_path=concat_representatives_path,
                 concat_groups_path=concat_groups_path,
                 threshold=threshold,
                 linkage=invariant_args["linkage"],
                 percentile=invariant_args["percentile"],
-                cache_path=cache_path,
                 label=label,
                 metric=invariant_args["metric"],
-                output_dir=invariant_args["output-dir"]
+                cache_size=invariant_args["cache-size"],
+                input_path=input_path
             )
         else
             mv(concat_representatives_path,representatives_path)
             mv(binary_path(concat_representatives_path),binary_path(representatives_path))
-            mv(groupsize_path(concat_representatives_path),groupsize_path(representatives_path))
+            mv(group_meta_path(concat_representatives_path),group_meta_path(representatives_path))
+            if isfile(cache_meta_path(concat_representatives_path))
+                mv(cache_meta_path(concat_representatives_path),cache_meta_path(representatives_path))
+                mv(cache_binary_path(concat_representatives_path),cache_binary_path(representatives_path))
+            end
             mv(concat_groups_path,groups_path)
             mv(metadata_path(concat_groups_path),metadata_path(groups_path))
         end
         return representatives_path,groups_path
     end
 
-    function stratifying_aggregation(;concat_representatives_path,concat_groups_path,threshold,
-                                        linkage,percentile,cache_path,label,metric,output_dir)
+    function stratifying_aggregation(;representatives_path,groups_path,concat_representatives_path,concat_groups_path,threshold,
+                                        linkage,percentile,label,metric,cache_size,input_path)
     
         start_time = time()
         distance_function = map_distance_function(metric)
-
+        
         concat_representatives_dict,concat_groupsize_dict = load_milk_binaries(concat_representatives_path)
-        n_comparisons = 0
-        n = sum(values(concat_groupsize_dict))
-
-        cache_dict = attempt_to_load_cache(cache_path)
-        cache_label = isnothing(cache_dict) ? "no" : "yes"
-
+        cache_dict = cache_size >= 1 ? load_milk_cache(concat_representatives_path,concat_representatives_dict,concat_groupsize_dict) : nothing
+        # partition representatives' own caches from the level input (the caches their radii were measured against),
+        # so radius + merge distance bounds each member's distance to the final representative
+        input_cache_dict = cache_size >= 1 ? load_milk_cache(input_path,concat_representatives_dict,concat_groupsize_dict;keep_ids=Set(keys(concat_representatives_dict))) : nothing
         concat_groups_info = load_groups_as_dictionary(concat_groups_path) # partition rep => members, radius
         concat_groups = concat_groups_info["groups"]
 
-        D,index_map,_,x = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false)
-        n_comparisons += x
+        D,index_map,_,n_comparisons = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false;cache_dict=input_cache_dict)
         if startswith(linkage,"ward")
             balanced = linkage == "ward_balanced"
             optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile,balanced)
@@ -93,28 +100,22 @@ module GroupAggregation
         end
         
         total_groupsize_dict = Dict(id => sum(concat_groupsize_dict[m] for m in group) for (id,group) in optimized_groups) # members = partition reps
-
+        cache_dict = cache_size >= 1 ? update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function) : nothing
         optimized_groups = Dict(id => reduce(vcat,(concat_groups[m] for m in group)) for (id,group) in optimized_groups)
         direct_groupsize_dict = Dict(id => length(group) for (id,group) in optimized_groups) # members = previous level
 
         G = length(optimized_dict)
-        t = round(threshold,digits=4)
-
         N = sum(values(total_groupsize_dict))
 
-        end_time = time()
-
-        @info "\t[MERGE: $label] $G groups; $n objects; threshold: $t; cache: $cache_label; runtime: $(round(end_time-start_time,digits=2)) seconds"
+        @info "\t[MERGE: $label] $G groups; $N objects; threshold: $(round(threshold,digits=4)); runtime: $(round(time()-start_time,digits=2)) seconds"
         flush(stdout)
-
-        representatives_path = joinpath(output_dir,"$label.representatives.ids")
-        groups_path = joinpath(output_dir,"$label.groups.jsonl.gz")
-        write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path)
+    
+        write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;cache_dict=cache_dict)
         write_group_results(
             path=groups_path,
             label=label,
             stage="representative_stratification_merge",
-            cache_label=cache_label,
+            n_cached=count_rows(representatives_path),
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
@@ -123,12 +124,15 @@ module GroupAggregation
             distances_dict=distances_dict,
             specificity_dict=specificity_dict,
             threshold=threshold,
-            n_comparisons=n_comparisons
+            n_comparisons=n_comparisons,
+            cache_dict=cache_dict
         )
         rm(concat_representatives_path)
         rm(concat_groups_path)
-        rm(binary_path(concat_representatives_path))
-        rm(groupsize_path(concat_representatives_path))
         rm(metadata_path(concat_groups_path))
+        rm(binary_path(concat_representatives_path))
+        rm(group_meta_path(concat_representatives_path))
+        rm(cache_meta_path(concat_representatives_path),force=true)
+        rm(cache_binary_path(concat_representatives_path),force=true)
     end
 end

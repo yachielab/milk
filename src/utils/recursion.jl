@@ -8,12 +8,11 @@ module Recursion
     using ..GroupAggregation: group_aggregation
     using ..GroupStratification: partitioned_group_stratification,stratification_process_direct_execution
     using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
-                          write_group_results,attempt_to_load_cache
-
+                          write_group_results,load_milk_cache
     export recursive_processing_framework,recursive_processing_direct_execution
 
 
-    function recursive_processing_framework(;input_path,label,cache_path,invariant_args)
+    function recursive_processing_framework(;input_path,label,invariant_args)
 
         partition_dir,files,batches = partition_and_batch_input_files(input_path,label,invariant_args)
         @info "\tInput file partitioned into $(length(files)) files ($(length(batches)) batches)"
@@ -41,7 +40,6 @@ module Recursion
             batches=batches,
             files=files,
             threshold=threshold,
-            cache_path=cache_path,
             label=label,
             partition_dir=partition_dir,
             invariant_args=invariant_args
@@ -50,20 +48,17 @@ module Recursion
         representatives_path,groups_path = group_aggregation(
             label=label,
             threshold=threshold,
-            cache_path=cache_path,
+            input_path=input_path,
             partition_dir=partition_dir,
             invariant_args=invariant_args
         )
         exclusion_set = Set{String}([representatives_path])
-        if !isnothing(cache_path) && isfile(cache_path)
-            push!(exclusion_set,cache_path)
-        end
         clean_directory(invariant_args["output-dir"],partition_dir,exclusion_set)
         return representatives_path,groups_path
     end
 
 
-    function recursive_processing_direct_execution(;representatives_path,iteration,label,cache_path,invariant_args)
+    function recursive_processing_direct_execution(;representatives_path,iteration,label,invariant_args)
         """
         When population size is tractable (i.e., below partition threshold),
         carry out remaining recrusive iterations directly in a single function
@@ -77,10 +72,7 @@ module Recursion
         data_dict,groupsize_dict = load_milk_binaries(representatives_path)
         n = length(data_dict)
 
-        cache_dict = attempt_to_load_cache(cache_path)
-        if isnothing(cache_dict)
-            cache_dict = copy(data_dict)
-        end
+        cache_dict = load_milk_cache(representatives_path,data_dict,groupsize_dict)
 
         i = iteration
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
@@ -88,11 +80,12 @@ module Recursion
             @info "Iteration: $i ($n objects)"
             flush(stdout)
             n_previous = n
-            data_dict,groupsize_dict = stratification_process_direct_execution(
+            data_dict,groupsize_dict,cache_dict = stratification_process_direct_execution(
                 data_dict=data_dict,
                 groupsize_dict=groupsize_dict,
                 perc=invariant_args["percentile"],
                 cache_dict=cache_dict,
+                cache_size=invariant_args["cache-size"],
                 distance_function=distance_function,
                 linkage=invariant_args["linkage"],
                 label=full_label,

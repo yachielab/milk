@@ -10,7 +10,7 @@ function main()
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
             linkage=args["stratification-linkage"],
-            cache_path=args["stratification-cache-path"],
+            cache_size=args["stratification-cache-size"],
             verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]
         )
@@ -49,7 +49,6 @@ function main()
         end
         mkdir(invariant_args["output-dir"])
 
-        cache_path = nothing
         i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
@@ -57,44 +56,34 @@ function main()
         input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
         symlink(milk_input_path,input_path)
         symlink(binary_path(milk_input_path),binary_path(input_path))
-        symlink(groupsize_path(milk_input_path),groupsize_path(input_path))
+        symlink(group_meta_path(milk_input_path),group_meta_path(input_path))
 
         n = countlines(input_path)
     
         @info "Iteration: $i ($n objects)"
         flush(stdout)
 
-        # Pre-emptively set cache for subsequent recursions (no caching for initial iteration)
-        cache_path = attempt_to_cache_file(input_path,n,invariant_args)
-
         if n <= args["partition-size"]
             recursive_processing_direct_execution(
                 representatives_path=input_path,
                 iteration=i,
                 label=label,
-                cache_path=cache_path,
                 invariant_args=invariant_args
             )
         else
             representatives_path,groups_path = recursive_processing_framework(
                 input_path=input_path,
                 label=full_label,
-                cache_path=nothing,
                 invariant_args=invariant_args
             )
 
             n = countlines(representatives_path)
-            if isnothing(cache_path)
-                cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-            end
-
             while n > args["sample-size"]
-                if n <= args["partition-size"]
+                if count_rows(representatives_path) <= args["partition-size"]
                     recursive_processing_direct_execution(
                         representatives_path=representatives_path,
                         iteration=i+1,
                         label=label,
-                        cache_path=cache_path,
                         invariant_args=invariant_args
                     )
                     break
@@ -108,18 +97,19 @@ function main()
                 input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
                 symlink(representatives_path,input_path)
                 symlink(binary_path(representatives_path),binary_path(input_path))
-                symlink(groupsize_path(representatives_path),groupsize_path(input_path))
+                symlink(group_meta_path(representatives_path),group_meta_path(input_path))
+
+                if isfile(cache_meta_path(representatives_path))
+                    symlink(cache_meta_path(representatives_path),cache_meta_path(input_path))
+                    symlink(cache_binary_path(representatives_path),cache_binary_path(input_path))
+                end
 
                 representatives_path,groups_path = recursive_processing_framework(
                     input_path=input_path,
                     label=full_label,
-                    cache_path=cache_path,
                     invariant_args=invariant_args
                 )
                 n = countlines(representatives_path)
-                if isnothing(cache_path)
-                    cache_path = attempt_to_cache_file(representatives_path,n,invariant_args)
-                end
                 @info "\t$n objects after recursive iteration."
                 flush(stdout)
             end

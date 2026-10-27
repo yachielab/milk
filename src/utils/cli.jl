@@ -17,10 +17,10 @@ module CLI
                 arg_type = Int
                 default = 1
                 help = "Sample size threshold for the number of groups required to stop the recursive grouping process. Recursion stops when the number of (representative) objects is less than or equal to this value."
-            "--cache-size-limit","-c"
+            "--cache-size","-c"
                 arg_type = Int
-                default = 50000
-                help = "How many (representative) objects to cache for medoid optimization in subsequent recursions."
+                default = 0
+                help = "Maximum number of cached cells per group in addition to its representative, used for averaged group distances. 0 disables caching."
             "--partition-size","-p"
                 arg_type = Int
                 default = 10000
@@ -64,7 +64,7 @@ module CLI
                 help = "Only perform hierarchical grouping/downsampling phase and NOT the additional step of reconstructing vertices and edges table for graph structure."
             "--convert-input-only"
                 action = :store_true
-                help = "Convert the input CSV to MILK's binary format (.ids/.bin/.sizes next to the CSV) and exit."
+                help = "Convert the input CSV to MILK's binary format (.ids/.bin/.group.tsv next to the CSV) and exit."
             "--output-dir","-o"
                 arg_type = String
                 default = "./milk.out"
@@ -122,9 +122,9 @@ module CLI
             "--stratification-linkage"
                 arg_type = String
                 default = "medoid"
-            "--stratification-cache-path"
-                arg_type = String
-                default = nothing
+            "--stratification-cache-size"
+                arg_type = Int
+                default = 0
             "--stratification-output-dir"
                 arg_type = String
         end
@@ -136,7 +136,7 @@ module CLI
         invariant_args = Dict(
             "batch-size"       => args["batch-size"],
             "sample-size"      => args["sample-size"],
-            "cache-size-limit" => args["cache-size-limit"],
+            "cache-size"       => args["cache-size"],
             "partition-size"   => args["partition-size"],
             "merge-threshold"  => args["merge-threshold"],
             "percentile"       => args["percentile"],
@@ -195,6 +195,9 @@ module CLI
         end
         if startswith(args["linkage"] ,"ward") && args["metric"] != "euclidean"
             error("Ward linkage requires '--metric euclidean' (got $(args["metric"])).")
+        end
+        if args["cache-size"] < 0
+            error("'--cache-size' must be >= 0 (got $(args["cache-size"])).")
         end
     end
 

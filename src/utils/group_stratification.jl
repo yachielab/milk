@@ -3,9 +3,10 @@ module GroupStratification
     using Glob
     using Distributed
 
-    using ..FileHandling: attempt_to_load_cache,load_milk_binaries,write_milk_binaries,
+    using ..FileHandling: load_milk_binaries,write_milk_binaries,
                           write_group_results,open_file_write,
-                          metadata_path,binary_path,groupsize_path
+                          metadata_path,binary_path,group_meta_path,
+                          GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance
     using ..HPC: submit_stratification_batch_array_jobs
     using ..Ward: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold
@@ -15,17 +16,17 @@ module GroupStratification
            partitioned_group_stratification,
            batch_group_stratification_hpc_mode,
            ward_stratification,
-           medoid_stratification
+           medoid_stratification,
+           update_cache
 
-    function partitioned_group_stratification(;batches,files,threshold,cache_path,label,partition_dir,invariant_args)
+    function partitioned_group_stratification(;batches,files,threshold,label,partition_dir,invariant_args)
         b = length(batches)
         p = invariant_args["percentile"]
         distance_function = map_distance_function(invariant_args["metric"])
-        cache_dict        = attempt_to_load_cache(cache_path)
         if (b == 1 || !invariant_args["hpc-mode"])
             pathlist = sort(files)
             start_time = time()
-            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,invariant_args["linkage"],cache_dict,partition_dir), pathlist)
+            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,invariant_args["linkage"],invariant_args["cache-size"],partition_dir), pathlist)
             GC.gc()
             elapsed_time = round((time()-start_time)/60,digits=2)
             if invariant_args["verbose"]
@@ -37,7 +38,6 @@ module GroupStratification
                 batches=batches,
                 files=files,
                 threshold=threshold,
-                cache_path=cache_path,
                 label=label,
                 partition_dir=partition_dir,
                 invariant_args=invariant_args
@@ -46,7 +46,7 @@ module GroupStratification
         return
     end
 
-    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_path,verbose,output_dir)
+    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_size,verbose,output_dir)
 
         @info "Starting distributed stratification process"
         @info "  $(nworkers()) workers"
@@ -55,18 +55,16 @@ module GroupStratification
         @info "  Percentile: $(percentile)"
         @info "  Metric: $(metric)"
         @info "  Linkage: $(linkage)"
-        @info "  Cache path: $(cache_path)"
+        @info "  Cache size: $(cache_size)"
         @info "  Output directory: $(output_dir)"
         flush(stdout)
 
-        n_comparisons = 0
         distance_function = map_distance_function(metric)
-        cache_dict = attempt_to_load_cache(cache_path)
 
         @info "Initiating the pmap distributed call"
         flush(stdout)
         pathlist = sort(glob("*.ids",input_dir))
-        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,linkage,cache_dict,output_dir), pathlist)
+        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,linkage,cache_size,output_dir), pathlist)
         if verbose
             for info in info_list
                 @info info
@@ -75,7 +73,7 @@ module GroupStratification
 
     end
 
-    function stratification_process_direct_execution(;data_dict,groupsize_dict,perc,cache_dict,distance_function,linkage,label,output_dir)
+    function stratification_process_direct_execution(;data_dict,groupsize_dict,perc,cache_dict,cache_size,distance_function,linkage,label,output_dir)
         """
         This is only called when performing direct execution of recursive iterations.
         In such cases, there is only a single file to work with, so no need to distribute computing.
@@ -83,7 +81,7 @@ module GroupStratification
         start_time = time()
 
         n_comparisons = 0
-        D,index_map,threshold,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function)
+        D,index_map,threshold,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function;cache_dict=(cache_size >= 1 ? cache_dict : nothing))
         n_comparisons += x
         if startswith(linkage,"ward")
             balanced = linkage == "ward_balanced"
@@ -104,13 +102,14 @@ module GroupStratification
         elapsed_time = round((end_time-start_time)/60,digits=2)
 
         @info "\t[$label] $G groups; $n objects ($N total); threshold: $t (computed); $n_comparisons comparisons (1 CPU(s)); runtime: $(elapsed_time) min"
-    
+        
+        cache_dict = update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function)
         groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
         write_group_results(
             path=groups_path,
             label=label,
             stage="direct_stratification_process",
-            cache_label="yes",
+            n_cached=sum(length(cache.cell_ids) for cache in values(cache_dict)),
             n_input_objects=N,
             n_groups=G,
             groups=optimized_groups,
@@ -119,12 +118,71 @@ module GroupStratification
             distances_dict=distances_dict,
             specificity_dict=specificity_dict,
             threshold=threshold,
-            n_comparisons=n_comparisons
+            n_comparisons=n_comparisons,
+            cache_dict=cache_dict
         )
-        return optimized_dict,total_groupsize_dict
+        return optimized_dict,total_groupsize_dict,cache_dict
     end
 
-    function stratification_process_distributed_execution(path,threshold,perc,distance_function,linkage,cache_dict,output_dir)
+    """
+    Cache of one new group: its representative plus up to `cache_size` extra cells, picked
+    farthest-first from the cached cells of the groups it merged. Each cached cell stands for the
+    pooled cells nearest to it (subgroup_size = their summed sizes, subgroup_radius = the largest
+    distance to them plus their own radius).
+    """
+    function _update_cache_group(representative_id,representative_vec,member_caches,cache_size,distance_function)
+        pooled_ids = reduce(vcat,(cache.cell_ids for cache in member_caches))
+        pooled_vecs = reduce(vcat,(cache.vecs for cache in member_caches))
+        pooled_sizes = reduce(vcat,(cache.subgroup_sizes for cache in member_caches))
+        pooled_radii = reduce(vcat,(cache.subgroup_radii for cache in member_caches))
+        n = length(pooled_ids)
+
+        cache_ids = [representative_id]
+        cache_vecs = [representative_vec]
+
+        # each pooled cell -> its nearest cached cell
+        nearest_dist = [distance_function(vec,representative_vec) for vec in pooled_vecs]
+        nearest_cached = ones(Int,n) # initially, they are all closest to representative
+        nearest_dist[pooled_ids .== representative_id] .= 0 # representative's own row is already cached
+
+        # pos=1 is representative; plus one since "in addition to" representative
+        for k in 2:cache_size+1
+            j = argmax(nearest_dist) # farthest pooled cell from the cache
+            nearest_dist[j] == 0 && break # everything already cached
+            push!(cache_ids,pooled_ids[j])
+            push!(cache_vecs,pooled_vecs[j])
+            for (i,vec) in enumerate(pooled_vecs)
+                updated_dist = distance_function(vec,pooled_vecs[j])
+                if updated_dist < nearest_dist[i]
+                    nearest_dist[i] = updated_dist
+                    nearest_cached[i] = k
+                end
+            end
+            nearest_dist[j] = 0 # exact: a cell's computed distance to itself can be ~1e-7 (cosine rounding)
+            nearest_cached[j] = k
+        end
+
+        subgroup_sizes = zeros(Int,length(cache_ids))
+        subgroup_radii = zeros(Float64,length(cache_ids))
+        for i in 1:n
+            subgroup_sizes[nearest_cached[i]] += pooled_sizes[i]
+            subgroup_radii[nearest_cached[i]] = max(subgroup_radii[nearest_cached[i]],nearest_dist[i]+pooled_radii[i])
+        end
+
+        return GroupCache(cache_ids,cache_vecs,subgroup_sizes,subgroup_radii)
+    end
+
+    function update_cache(representative_dict,groups_dict,cache_dict,cache_size,distance_function)
+        # note that members sorted so pooling order (and tie-breaking) doesn't depend on Dict order
+        updated_cache_dict = Dict{String,GroupCache}()
+        for (id,vec) in representative_dict
+            member_caches = [cache_dict[m] for m in sort(groups_dict[id])]
+            updated_cache_dict[id] =  _update_cache_group(id,vec,member_caches,cache_size,distance_function)
+        end
+        return updated_cache_dict
+    end
+
+    function stratification_process_distributed_execution(path,threshold,perc,distance_function,linkage,cache_size,output_dir)
 
         label = replace(basename(path),r"\.ids$" => "")
 
@@ -132,22 +190,22 @@ module GroupStratification
 
         n_comparisons = 0
         data_dict,groupsize_dict = load_milk_binaries(path)
+        cache_dict = cache_size >= 1 ? load_milk_cache(path,data_dict,groupsize_dict) : nothing
         if length(data_dict) < 2
             representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
             if length(data_dict) == 0
-                write_milk_binaries(Dict{String,Vector{Float32}}(),Dict{String,Int}(),representatives_path)
+                write_milk_binaries(Dict{String,Vector{Float32}}(),Dict{String,Int}(),representatives_path;cache_dict=cache_dict)
                 open_file_write(groups_path) do file end
                 touch(metadata_path(groups_path))
-
             else
                 representative_id = collect(keys(data_dict))[1]
-                write_milk_binaries(data_dict,groupsize_dict,representatives_path)
+                write_milk_binaries(data_dict,groupsize_dict,representatives_path;cache_dict=cache_dict)
                 write_group_results(
                     path=groups_path,
                     label=label,
                     stage="batch_stratification_process",
-                    cache_label="no",
+                    n_cached=count_rows(representatives_path),
                     n_input_objects=length(data_dict),
                     n_groups=1,
                     groups=Dict(representative_id => [representative_id]),
@@ -156,17 +214,20 @@ module GroupStratification
                     distances_dict=Dict(representative_id => Float32[]),
                     specificity_dict=Dict(representative_id => Int32[]),
                     threshold=threshold,
-                    n_comparisons=n_comparisons
+                    n_comparisons=n_comparisons,
+                    cache_dict=cache_dict
                 )
                 rm(path)
                 rm(binary_path(path))
-                rm(groupsize_path(path))
+                rm(group_meta_path(path))
+                rm(cache_meta_path(path),force=true)
+                rm(cache_binary_path(path),force=true)
             end
             info = "\t[$label] 1 group; $(length(data_dict) ) objects ($(length(data_dict) ) total); threshold: $threshold (predefined); 0 comparisons ($(nworkers()) CPU(s)); runtime: 0 seconds"
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         else
-            D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function,false)
+            D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function,false;cache_dict=cache_dict)
             n_comparisons += x
             if startswith(linkage,"ward")
                 balanced = linkage == "ward_balanced"
@@ -183,19 +244,19 @@ module GroupStratification
             G = length(optimized_dict)
             t = round(threshold,digits=4)
             N = sum(values(total_groupsize_dict))
-            cache_label = isnothing(cache_dict) ? "no" : "yes"
             elapsed_time = round((end_time-start_time)/60,digits=2)
 
             info = "\t[$label] $G groups; $n objects ($N total); threshold: $t (predefined); $n_comparisons comparisons ($(nworkers()) CPU(s)); runtime: $(elapsed_time) min"
 
             representatives_path = joinpath(output_dir,"$(label).representatives.ids")
             groups_path = joinpath(output_dir,"$(label).groups.jsonl.gz")
-            write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path)
+            cache_dict = cache_size >= 1 ? update_cache(optimized_dict,optimized_groups,cache_dict,cache_size,distance_function) : nothing
+            write_milk_binaries(optimized_dict,total_groupsize_dict,representatives_path;cache_dict=cache_dict)
             write_group_results(
                 path=groups_path,
                 label=label,
                 stage="batch_stratification_process",
-                cache_label=cache_label,
+                n_cached=count_rows(representatives_path),
                 n_input_objects=N,
                 n_groups=G,
                 groups=optimized_groups,
@@ -204,11 +265,14 @@ module GroupStratification
                 distances_dict=distances_dict,
                 specificity_dict=specificity_dict,
                 threshold=threshold,
-                n_comparisons=n_comparisons
+                n_comparisons=n_comparisons,
+                cache_dict=cache_dict
             )
             rm(path)
             rm(binary_path(path))
-            rm(groupsize_path(path))
+            rm(group_meta_path(path))
+            rm(cache_meta_path(path),force=true)
+            rm(cache_binary_path(path),force=true)
             touch(joinpath(output_dir,"$(label).flag"))
             return info
         end
