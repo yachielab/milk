@@ -89,6 +89,7 @@ module Recursion
                 perc=invariant_args["percentile"],
                 cache_dict=cache_dict,
                 cache_size=invariant_args["cache-size"],
+                size_weighted=invariant_args["size-weighted"],
                 distance_function=distance_function,
                 linkage=invariant_args["linkage"],
                 label=full_label,

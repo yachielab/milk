@@ -53,6 +53,9 @@ module CLI
                 arg_type = String
                 default = "ward"
                 help = "Grouping linkage. Permissible values: {'medoid','ward','average'}. 'ward' and 'average' (UPGMA) require '--metric euclidean', ignore '--cache-size', and merge on squared Euclidean cost; thresholds are reported as its square root."
+            "--size-weighted"
+                action = :store_true
+                help = "[medoid linkage only] Weight group distances by sqrt(2*n_i*n_j/(n_i+n_j)), the square root of Ward's size factor. Pair with '--cache-size' >= 24 for best results."
             "--verbose"
                 action = :store_true
                 help = "Amount of information written to standard out/err."
@@ -125,6 +128,8 @@ module CLI
             "--stratification-cache-size"
                 arg_type = Int
                 default = 0
+            "--stratification-size-weighted"
+                action = :store_true
             "--stratification-output-dir"
                 arg_type = String
         end
@@ -152,7 +157,8 @@ module CLI
             "environment-path" => isnothing(args["environment-path"]) ? nothing : abspath(args["environment-path"]),
             "verbose"          => args["verbose"],
             "output-dir"       => abspath(args["output-dir"]),
-            "hpc-mode"         => args["hpc-mode"]
+            "hpc-mode"         => args["hpc-mode"],
+            "size-weighted"    => args["size-weighted"]
         )
         return invariant_args
     end
@@ -205,6 +211,10 @@ module CLI
         if centroid_linkage && args["cache-size"] > 0
             @warn "$(args["linkage"]) linkage does not use the cache; ignoring '--cache-size $(args["cache-size"])' and setting it to 0."
             args["cache-size"] = 0
+        end
+        if centroid_linkage && args["size-weighted"]
+            @warn "$(args["linkage"]) linkage already weights by group size; ignoring '--size-weighted'."
+            args["size-weighted"] = false
         end
     end
 

@@ -61,6 +61,7 @@ module GroupAggregation
                 label=label,
                 metric=invariant_args["metric"],
                 cache_size=invariant_args["cache-size"],
+                size_weighted=invariant_args["size-weighted"],
                 input_path=input_path
             )
         else
@@ -72,7 +73,7 @@ module GroupAggregation
     end
 
     function stratifying_aggregation(;representatives_path,groups_path,concat_representatives_path,concat_groups_path,threshold,
-                                        linkage,percentile,label,metric,cache_size,input_path)
+                                        linkage,percentile,label,metric,cache_size,size_weighted,input_path)
     
         start_time = time()
         distance_function = map_distance_function(metric)
@@ -94,7 +95,7 @@ module GroupAggregation
             concat_spread_dict = load_group_spreads(concat_representatives_path)
             optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,_ = average_stratification(concat_representatives_dict,concat_groupsize_dict,concat_spread_dict,D,index_map,threshold,percentile)
         else
-            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold;radius_dict=concat_groups_info["radius"])
+            optimized_dict,optimized_groups,distances_dict,specificity_dict,_ = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile;radius_dict=concat_groups_info["radius"],size_weighted=size_weighted)
             optimized_spread_dict = nothing
         end
         

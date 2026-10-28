@@ -10,7 +10,8 @@ module PairwiseComparisons
     export map_distance_function,
            compute_pairwise_distance_matrix,
            determine_percentile_threshold,
-           compute_euclidean_distance
+           compute_euclidean_distance,
+           size_weighted_distance_matrix
 
     function compute_cosine_distance(vec_i,vec_j)
         return cosine_dist(vec_i,vec_j)
@@ -144,7 +145,23 @@ module PairwiseComparisons
         return D,index_map,threshold,n_comparisons
     end
 
-    function determine_percentile_threshold_process(input_path,metric,p,linkage)
+    function size_weighted_distance_matrix(D,sizes)
+        n = size(D,1)
+        C = similar(D)
+        for j in 1:n
+            for i in 1:n
+                size_factor = sqrt((2*sizes[i]*sizes[j])/(sizes[i]+sizes[j]))
+                C[i,j] = D[i,j]*size_factor
+            end
+        end
+        return C
+    end
+
+    function determine_percentile_threshold_process(input_path,invariant_args)
+        metric = invariant_args["metric"]
+        p = invariant_args["percentile"]
+        linkage = invariant_args["linkage"]
+        size_weighted = invariant_args["size-weighted"]
         data_dict,groupsize_dict = load_milk_binaries(input_path)
         if length(data_dict) < 2
             return nothing
@@ -156,12 +173,14 @@ module PairwiseComparisons
         else
             cache_dict = nothing
         end
-        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function,!centroid_linkage;cache_dict=cache_dict)
+        medoid_weighted = !centroid_linkage && size_weighted
+        threshold_flag = !(centroid_linkage || medoid_weighted)
+        D,index_map,threshold,_ = compute_pairwise_distance_matrix(data_dict,p,distance_function,threshold_flag;cache_dict=cache_dict)
+        ids = Vector{String}(undef,length(index_map))
+        for (id,i) in index_map
+            ids[i] = id
+        end
         if centroid_linkage
-            ids = Vector{String}(undef,length(index_map))
-            for (id,i) in index_map
-                ids[i] = id
-            end
             if linkage == "ward"
                 sizes = [groupsize_dict[id] for id in ids]
                 C = compute_ward_cost_matrix(D,sizes)
@@ -170,7 +189,13 @@ module PairwiseComparisons
                 spreads = [spread_dict[id] for id in ids]
                 C = compute_average_cost_matrix(D,spreads)
             end
+
             threshold = ward_percentile_threshold(C,p)
+        elseif medoid_weighted
+            sizes = [groupsize_dict[id] for id in ids]
+            C = size_weighted_distance_matrix(D,sizes)
+            n = size(C,1)
+            threshold = percentile([C[i,j] for j in 2:n for i in 1:j-1],p)
         end
         return threshold
     end
@@ -178,10 +203,7 @@ module PairwiseComparisons
     function determine_percentile_threshold(pathlist,invariant_args)
         """ distributed
         """
-        metric = invariant_args["metric"]
-        p = invariant_args["percentile"]
-        linkage = invariant_args["linkage"]
-        thresholds = pmap(path -> determine_percentile_threshold_process(path,metric,p,linkage),pathlist)
+        thresholds = pmap(path -> determine_percentile_threshold_process(path,invariant_args),pathlist)
         filtered_thresholds = filter(!isnothing,thresholds)
         if isempty(filtered_thresholds)
             error("Unable to compute threshold due to all partitions having too few objects.")

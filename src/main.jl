@@ -10,6 +10,7 @@ function main()
             percentile=args["stratification-percentile"],
             metric=args["stratification-metric"],
             linkage=args["stratification-linkage"],
+            size_weighted=args["stratification-size-weighted"],
             cache_size=args["stratification-cache-size"],
             verbose=args["verbose"],
             output_dir=args["stratification-output-dir"]

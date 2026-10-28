@@ -2,12 +2,13 @@ module GroupStratification
 
     using Glob
     using Distributed
+    using StatsBase: percentile
 
     using ..FileHandling: load_milk_binaries,write_milk_binaries,
                           write_group_results,open_file_write,
                           metadata_path,binary_path,group_meta_path,
                           GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache,load_group_spreads
-    using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance
+    using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance,size_weighted_distance_matrix
     using ..HPC: submit_stratification_batch_array_jobs
     using ..Linkage: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,average_cost_update
 
@@ -27,7 +28,7 @@ module GroupStratification
         if (b == 1 || !invariant_args["hpc-mode"])
             pathlist = sort(files)
             start_time = time()
-            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,invariant_args["linkage"],invariant_args["cache-size"],partition_dir), pathlist)
+            info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,p,distance_function,invariant_args["linkage"],invariant_args["cache-size"],invariant_args["size-weighted"],partition_dir), pathlist)
             GC.gc()
             elapsed_time = round((time()-start_time)/60,digits=2)
             if invariant_args["verbose"]
@@ -47,7 +48,7 @@ module GroupStratification
         return
     end
 
-    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_size,verbose,output_dir)
+    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_size,size_weighted,verbose,output_dir)
 
         @info "Starting distributed stratification process"
         @info "  $(nworkers()) workers"
@@ -57,6 +58,7 @@ module GroupStratification
         @info "  Metric: $(metric)"
         @info "  Linkage: $(linkage)"
         @info "  Cache size: $(cache_size)"
+        @info "  Size-weighted: $(size_weighted)"
         @info "  Output directory: $(output_dir)"
         flush(stdout)
 
@@ -65,7 +67,7 @@ module GroupStratification
         @info "Initiating the pmap distributed call"
         flush(stdout)
         pathlist = sort(glob("*.ids",input_dir))
-        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,linkage,cache_size,output_dir), pathlist)
+        info_list = pmap(path -> stratification_process_distributed_execution(path,threshold,percentile,distance_function,linkage,cache_size,size_weighted,output_dir), pathlist)
         if verbose
             for info in info_list
                 @info info
@@ -74,7 +76,7 @@ module GroupStratification
 
     end
 
-    function stratification_process_direct_execution(;data_dict,groupsize_dict,spread_dict,perc,cache_dict,cache_size,distance_function,linkage,label,output_dir)
+    function stratification_process_direct_execution(;data_dict,groupsize_dict,spread_dict,perc,cache_dict,cache_size,size_weighted,distance_function,linkage,label,output_dir)
         """
         This is only called when performing direct execution of recursive iterations.
         In such cases, there is only a single file to work with, so no need to distribute computing.
@@ -82,7 +84,7 @@ module GroupStratification
         start_time = time()
 
         n_comparisons = 0
-        D,index_map,threshold,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function;cache_dict=(cache_size >= 1 ? cache_dict : nothing))
+        D,index_map,_,x = compute_pairwise_distance_matrix(data_dict,perc,distance_function,false;cache_dict=(cache_size >= 1 ? cache_dict : nothing))
         n_comparisons += x
         if linkage == "ward"
             optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc)
@@ -92,7 +94,7 @@ module GroupStratification
             optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,threshold = average_stratification(data_dict,groupsize_dict,spread_dict,D,index_map,nothing,perc)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
         else
-            optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+            optimized_dict,optimized_groups,distances_dict,specificity_dict,threshold = medoid_stratification(data_dict,groupsize_dict,D,index_map,nothing,perc;size_weighted=size_weighted)
             optimized_spread_dict = nothing
         end
         direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
@@ -187,7 +189,7 @@ module GroupStratification
         return updated_cache_dict
     end
 
-    function stratification_process_distributed_execution(path,threshold,perc,distance_function,linkage,cache_size,output_dir)
+    function stratification_process_distributed_execution(path,threshold,perc,distance_function,linkage,cache_size,size_weighted,output_dir)
 
         label = replace(basename(path),r"\.ids$" => "")
 
@@ -243,7 +245,7 @@ module GroupStratification
                 optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,threshold = average_stratification(data_dict,groupsize_dict,spread_dict,D,index_map,threshold,perc)
                 specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
             else
-                optimized_dict,optimized_groups,distances_dict,specificity_dict = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold)
+                optimized_dict,optimized_groups,distances_dict,specificity_dict,threshold = medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold,perc;size_weighted=size_weighted)
                 optimized_spread_dict = nothing
             end
             direct_groupsize_dict = Dict( id => length(group) for (id,group) in optimized_groups )
@@ -398,7 +400,7 @@ module GroupStratification
             updated_medoid_dict = Dict{Int,Vector{Int}}(medoid => Int[] for medoid in keys(medoid_dict))
             update_flag = false
             for i in ordered_indices
-                if all(D[i,medoid]+radii[i] > threshold for medoid in keys(updated_medoid_dict))
+                if all(D[i,medoid] + radii[i] > threshold for medoid in keys(updated_medoid_dict))
                     updated_medoid_dict[i] = Int[]
                     update_flag = true
                 end
@@ -435,15 +437,20 @@ module GroupStratification
         return medoid_dict
     end
 
-    function medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold;radius_dict=nothing)
+    function medoid_stratification(data_dict,groupsize_dict,D,index_map,threshold,p;radius_dict=nothing,size_weighted=false)
         ids = Vector{String}(undef,length(index_map))
         for (id,i) in index_map
             ids[i] = id
         end
 
         sizes = Float64[groupsize_dict[id] for id in ids]
-        radii = isnothing(radius_dict) ? zeros(length(ids)) : Float64[radius_dict[id] for id in ids]
-        medoid_dict = threshold_bound_kmedoids(D,sizes,threshold,radii=radii)
+        radii = (isnothing(radius_dict) || size_weighted) ? zeros(length(ids)) : Float64[radius_dict[id] for id in ids]
+        C     = size_weighted ? size_weighted_distance_matrix(D,sizes) : D
+        if isnothing(threshold)
+            n = size(C,1)
+            threshold = percentile([C[i,j] for j in 2:n for i in 1:j-1],p)
+        end
+        medoid_dict = threshold_bound_kmedoids(C,sizes,threshold,radii=radii)
         medoids = collect(keys(medoid_dict))
 
         representative_dict = Dict{String,Vector{Float32}}()
@@ -454,9 +461,9 @@ module GroupStratification
             medoid_id = ids[medoid]
             representative_dict[medoid_id] = data_dict[medoid_id]
             groups_dict[medoid_id] = ids[members]
-            distances_dict[medoid_id] = Float32[D[i,medoid] for i in members if i != medoid]
-            specificity_dict[medoid_id] = Int32[count(D[i,m]+radii[i] <= threshold for m in medoids) for i in members if i != medoid]
+            distances_dict[medoid_id] = Float32[D[i,medoid] for i in members if i != medoid] # unweighted: real distances
+            specificity_dict[medoid_id] = Int32[count(C[i,m]+radii[i] <= threshold for m in medoids) for i in members if i != medoid]
         end
-        return representative_dict,groups_dict,distances_dict,specificity_dict
+        return representative_dict,groups_dict,distances_dict,specificity_dict,threshold
     end
 end

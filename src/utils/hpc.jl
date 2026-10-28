@@ -9,6 +9,7 @@ module HPC
         jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
         stdout_dir = joinpath(jobs_dir,"stdout")
         stderr_dir = joinpath(jobs_dir,"stderr")
+        size_weighted_flag = invariant_args["size-weighted"] ? "--stratification-size-weighted" : ""
         mkpath(stdout_dir)
         mkpath(stderr_dir)
         if invariant_args["job-scheduler"] == "sge"
@@ -28,6 +29,7 @@ module HPC
             METRIC=$(invariant_args["metric"])
             LINKAGE=$(invariant_args["linkage"])
             CACHE_SIZE=$(invariant_args["cache-size"])
+            SIZE_WEIGHTED_FLAG=$(size_weighted_flag)
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
             export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
@@ -50,6 +52,7 @@ module HPC
             PERCENTILE=$(invariant_args["percentile"])
             METRIC=$(invariant_args["metric"])
             LINKAGE=$(invariant_args["linkage"])
+            SIZE_WEIGHTED_FLAG=$(size_weighted_flag)
             CACHE_SIZE=$(invariant_args["cache-size"])
             OUTPUT_DIR=$(output_dir)\n
             BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
@@ -68,6 +71,7 @@ module HPC
         --stratification-metric \$METRIC \\
         --stratification-linkage \$LINKAGE \\
         --stratification-cache-size \$CACHE_SIZE \\
+        \$SIZE_WEIGHTED_FLAG \\
         -T $(invariant_args["threads"]) \\
         --stratification-output-dir \$OUTPUT_DIR
         """
