@@ -24,7 +24,7 @@ module CLI
             "--partition-size","-p"
                 arg_type = Int
                 default = 10000
-                help = "How many objects per partitioned file."
+                help = "Target (approximate) rows per partition (including cached cells when caching). Similarity-aware partitioning built using hierarchical k-means."
             "--merge-threshold","-M"
                 arg_type = Int
                 default = 10000
@@ -37,6 +37,10 @@ module CLI
                 arg_type = String
                 default = nothing
                 help = "Specify string label for file names."
+            "--batch-size","-b"
+                arg_type = Int
+                default = 50
+                help = "Number of partitioned input files per job [HPC mode], and number of random samples (each about '--partition-size' rows) used to determine the percentile threshold [all modes]."
             "--percentile","-t"
                 arg_type = Float64
                 default = 1.0
@@ -79,10 +83,6 @@ module CLI
             "--hpc-mode"
                 action = :store_true
                 help = "Activate HPC mode for MILK execution. If this flag is not specified, all [HPC mode] arguments will be ignored."
-            "--batch-size","-b"
-                arg_type = Int
-                default = 50
-                help = "[HPC mode] The number of partitioned input files to be assigned per job."
             "--job-scheduler"
                 arg_type = String
                 default = nothing

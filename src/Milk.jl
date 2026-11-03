@@ -20,6 +20,7 @@ module Milk
     include("utils/group_aggregation.jl")
     include("utils/hierarchical_reconstruction.jl")
     include("utils/cli.jl")
+    include("utils/partitioning.jl")
     include("utils/recursion.jl")
 
     using .FileHandling

@@ -1,14 +1,13 @@
 module Recursion
 
-    using Random
     using Logging
-    using StatsBase
 
     using ..PairwiseComparisons: determine_percentile_threshold,map_distance_function,compute_pairwise_distance_matrix
     using ..GroupAggregation: group_aggregation
     using ..GroupStratification: partitioned_group_stratification,stratification_process_direct_execution
-    using ..FileHandling: partition_and_batch_input_files,clean_directory,load_milk_binaries,
+    using ..FileHandling: batch_partitioned_files,clean_directory,load_milk_binaries,
                           write_group_results,load_milk_cache,load_group_spreads
+    using ..Partitioning: partition_input_file
 
     export recursive_processing_framework,
            recursive_processing_direct_execution
@@ -16,23 +15,18 @@ module Recursion
 
     function recursive_processing_framework(;input_path,label,invariant_args)
 
-        partition_dir,files,batches = partition_and_batch_input_files(input_path,label,invariant_args)
+        partition_dir,threshold_pathlist = partition_input_file(input_path,label,invariant_args)
+        files,batches = batch_partitioned_files(partition_dir,label,invariant_args)
         @info "\tInput file partitioned into $(length(files)) files ($(length(batches)) batches)"
         flush(stdout)
 
-        @info "\tDetermining threshold: randomly sampling files..." 
+        @info "\tDetermining threshold from $(length(threshold_pathlist)) random samples..."
         flush(stdout)
         if length(files) > 1
-            if length(files) > invariant_args["batch-size"]
-                Random.seed!(invariant_args["seed"])
-                sampled_files = sample(files,invariant_args["batch-size"];replace=false)
-            else
-                sampled_files = files
-            end
             start_time = time()
-            threshold = determine_percentile_threshold(sampled_files,invariant_args)
+            threshold = determine_percentile_threshold(threshold_pathlist,invariant_args)
             elapsed_time = round((time()-start_time)/60,digits=2)
-            @info "\tGlobally-determined percentile threshold: $(threshold) ($(length(sampled_files)) files; $elapsed_time min)"
+            @info "\tGlobally-determined percentile threshold: $(threshold) ($(length(threshold_pathlist)) files; $elapsed_time min)"
             flush(stdout)
         else
             threshold = nothing

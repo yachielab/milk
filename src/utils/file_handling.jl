@@ -8,9 +8,7 @@ module FileHandling
 
     export load_groups_as_dictionary,
         write_group_results,
-        partition_input_file,
         batch_partitioned_files,
-        partition_and_batch_input_files,
         open_file_write,
         open_file_read,
         clean_directory,
@@ -30,7 +28,12 @@ module FileHandling
         load_milk_cache,
         count_rows,
         load_group_spreads,
-        mv_milk_files
+        mv_milk_files,
+        open_file_limit,
+        rm_milk_files,
+        open_milk_files,
+        close_milk_files,
+        read_binary_rows
 
 
     ########## inline helpers ##########
@@ -162,6 +165,20 @@ module FileHandling
             end
         end
     end
+
+    function read_binary_rows(bin_path,rows,d)
+        """ rows (sorted, 1-based) of a .bin file with d Float32 per row, one column per row """
+        X = Matrix{Float32}(undef,d,length(rows))
+        vec = Vector{Float32}(undef,d)
+        open(bin_path) do binary_io
+            for (j,row) in enumerate(rows)
+                seek(binary_io,4*d*(row-1))
+                X[:,j] = read!(binary_io,vec)
+            end
+        end
+        return X
+    end
+
 
     function load_milk_binaries(ids_path)
         data_dict = Dict{String,Vector{Float32}}()
@@ -302,72 +319,6 @@ module FileHandling
         subgroup_radii::Vector{Float64}
     end
 
-    function partition_input_file(input_path,label,invariant_args)
-        partition_dir = joinpath(invariant_args["output-dir"],"$(label).split")
-        mkpath(partition_dir)
-
-        function _get_partitioned_input_path(p)
-            partition_label = "partition_$(lpad(string(p),8,'0'))"
-            return joinpath(partition_dir,"$(label).$(partition_label).ids")
-        end
-
-        function _write_partition()
-            path = _get_partitioned_input_path(p)
-
-            write_milk_binaries(data_dict,groupsize_dict,path;spread_dict=spread_dict,
-                                cache_dict=(cache_flag ? cache_dict : nothing))
-            empty!(data_dict)
-            empty!(groupsize_dict)
-            empty!(spread_dict)
-            empty!(cache_dict)
-            n_rows = 0
-            p += 1
-        end
-
-        cache_flag = isfile(cache_meta_path(input_path))
-        cache_meta_io = cache_flag ? open(cache_meta_path(input_path)) : nothing
-        cache_bin_io = cache_flag ? open(cache_binary_path(input_path)) : nothing
-
-        p = 1
-        data_dict = Dict{String,Vector{Float32}}()
-        groupsize_dict = Dict{String,Int}()
-        spread_dict = Dict{String,Float64}()
-        cache_dict = Dict{String,GroupCache}()
-        n_rows = 0
-
-        open(group_meta_path(input_path)) do group_meta_io
-            stream_binary_file(input_path) do id,vec
-                fields = split(readline(group_meta_io),'\t')
-                if fields[1] != id
-                    error("Row mismatch between $(input_path) and its group file: $(id) vs $(fields[1])")
-                end
-                data_dict[id] = copy(vec)
-                groupsize_dict[id] = parse(Int,fields[2])
-                spread_dict[id] = parse(Float64,fields[3])
-
-                if cache_flag
-                    n_cached = parse(Int,fields[4])
-                    cache_dict[id] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,length(vec))
-                    n_rows += n_cached
-                else
-                    n_rows += 1
-                end
-
-                if n_rows >= invariant_args["partition-size"]
-                    _write_partition()
-                end
-            end
-        end
-        if !isempty(data_dict)
-            _write_partition()
-        end
-        if cache_flag
-            close(cache_meta_io)
-            close(cache_bin_io)
-        end
-        return partition_dir
-    end
-
     function mv_milk_files(src_ids_path,dst_ids_path;force=false)
         """ moves .ids/.bin/.group.tsv, plus .cache.tsv/.cache.bin if present """
         mv(src_ids_path,dst_ids_path;force=force)
@@ -415,13 +366,6 @@ module FileHandling
         return files,batches
     end
 
-    function partition_and_batch_input_files(input_path,label,invariant_args)
-        partition_dir = partition_input_file(input_path,label,invariant_args)
-        input_paths,batch_dirs = batch_partitioned_files(partition_dir,label,invariant_args)
-        return partition_dir,input_paths,batch_dirs
-    end
-
-
     function open_file_write(f::Function, path::AbstractString; gzip::Bool=true)
         stream = gzip ? GzipCompressorStream(open(path,"w")) : open(path,"w")
         try
@@ -440,30 +384,64 @@ module FileHandling
         end
     end
 
+    function open_file_limit()
+        limit = try readchomp(`sh -c "ulimit -n"`) catch; "1024" end
+        if limit == "unlimited"
+            return 65536
+        end
+        return parse(Int,limit)
+    end
+
+    function rm_milk_files(ids_path)
+        rm(ids_path)
+        rm(binary_path(ids_path))
+        rm(group_meta_path(ids_path))
+        rm(cache_meta_path(ids_path),force=true)
+        rm(cache_binary_path(ids_path),force=true)
+    end
+
     function clean_directory(work_dir,partition_dir,exclusion_set)
         rm(partition_dir,recursive=true)
         for path in glob("*.representatives.ids",work_dir)
             if path in exclusion_set continue end
-            rm(path)
-            rm(binary_path(path))
-            rm(group_meta_path(path))
-            rm(cache_meta_path(path),force=true)
-            rm(cache_binary_path(path),force=true)
+            rm_milk_files(path)
         end
         for path in glob("*.input.ids",work_dir)
             if islink(path) && !isfile(path) # broken symlink: its representatives were deleted above
-                rm(path)
-                rm(binary_path(path))
-                rm(group_meta_path(path))
-                rm(cache_meta_path(path),force=true)
-                rm(cache_binary_path(path),force=true)
+                rm_milk_files(path)
             end
         end
         return
     end
 
+    function open_milk_files(ids_path,mode;cache=false)
+        """ .ids/.bin/.group.tsv (and .cache.tsv/.cache.bin with cache=true) opened together """
+        return (
+            ids = open(ids_path,mode),
+            bin = open(binary_path(ids_path),mode),
+            group = open(group_meta_path(ids_path),mode),
+            cache_meta = cache ? open(cache_meta_path(ids_path),mode) : nothing,
+            cache_bin = cache ? open(cache_binary_path(ids_path),mode) : nothing
+        )
+    end
+
+    function close_milk_files(files)
+        for io in files
+            if !isnothing(io)
+                close(io)
+            end
+        end
+    end
+
     function final_cleanup(output_dir)
-        for path in [glob("*.ids",output_dir); glob("*.bin",output_dir); glob("*.group.tsv",output_dir); glob("*.cache.tsv",output_dir)]
+        pathlist = [
+            glob("*.ids",output_dir); 
+            glob("*.bin",output_dir); 
+            glob("*.group.tsv",output_dir); 
+            glob("*.cache.tsv",output_dir); 
+            glob("*.cache.bin",output_dir)
+        ]
+        for path in pathlist
             rm(path)
         end
         return
