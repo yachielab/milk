@@ -7,7 +7,8 @@ module Linkage
            compute_ward_cost_matrix,
            compute_average_cost_matrix,
            average_cost_update,
-           identify_connected_objects
+           identify_connected_objects,
+           threshold_bound_kmedoids
 
     """
     Objects that can group with at least one other: some j with C[i,j] + radii[i] <= threshold (i could join j),
@@ -180,6 +181,100 @@ module Linkage
         end
 
         return collect(values(groups_dict))
+    end
+
+function _soft_kernel_density(D,sizes,threshold)
+        n = size(D,1)
+        bandwidth = threshold > 0 ? threshold : eps(Float64)
+        density_vec = Vector{Float64}(undef,n)
+        for j in 1:n
+            kernels = exp.(-0.5 .* (view(D,:,j) ./ bandwidth).^2)
+            density_vec[j] = sum(sizes .* kernels)
+        end
+        return density_vec
+    end
+
+    function _determine_weighted_medoid(D,sizes,members,density_vec)
+        candidate_costs = Vector{Float64}(undef,length(members))
+        for (k,candidate) in enumerate(members)
+            candidate_costs[k] = sum(sizes[i]*D[i,candidate] for i in members)
+        end
+        min_cost = minimum(candidate_costs)
+        tolerance = 1e-6*max(min_cost,1e-12)
+        tied_candidates = members[candidate_costs .<= min_cost + tolerance]
+        return tied_candidates[argmax(density_vec[tied_candidates])]
+    end
+
+    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=50,radii=nothing)
+        n = size(D,1)
+
+        if isnothing(radii)
+            radii = zeros(n)
+        end
+
+        start_time = time()
+
+        # soft-kernel density ordering of cells (most->least dense)
+        density_vec = _soft_kernel_density(D,sizes,threshold)
+        ordered_indices = sortperm(density_vec,rev=true,alg=MergeSort)
+
+        connected_list = identify_connected_objects(D,threshold;radii=radii)
+        connected_indices = findall(connected_list)
+        ordered_indices = [i for i in ordered_indices if connected_list[i]] # same density order
+    
+        # key: medoid index; value: vector of member indices
+        medoid_dict = Dict{Int,Vector{Int}}()
+
+        n_iterations = 0
+        for iter in 1:max_iter
+            n_iterations = iter
+
+            updated_medoid_dict = Dict{Int,Vector{Int}}(medoid => Int[] for medoid in keys(medoid_dict))
+            update_flag = false
+            for i in ordered_indices
+                if all(D[i,medoid] + radii[i] > threshold for medoid in keys(updated_medoid_dict))
+                    updated_medoid_dict[i] = Int[]
+                    update_flag = true
+                end
+            end
+    
+            for i in connected_indices
+                if haskey(updated_medoid_dict,i)
+                    push!(updated_medoid_dict[i],i)
+                    continue
+                end
+                nearest_medoid = 0 # invalid index
+                nearest_dist = Inf32
+                for medoid in keys(updated_medoid_dict)
+                    if D[i,medoid] + radii[i] <= threshold && D[i,medoid] < nearest_dist
+                        nearest_medoid = medoid
+                        nearest_dist = D[i,medoid]
+                    end
+                end
+                nearest_medoid == 0 && error("object $i has no medoid within threshold (NaN distance?)")
+                push!(updated_medoid_dict[nearest_medoid],i)
+            end
+
+            if (!update_flag && updated_medoid_dict == medoid_dict) || iter == max_iter
+                medoid_dict = updated_medoid_dict
+                break
+            end
+
+            medoid_dict = Dict{Int,Vector{Int}}()
+            for (medoid,members) in updated_medoid_dict
+                optimized_medoid = _determine_weighted_medoid(D,sizes,members,density_vec)
+                medoid_dict[optimized_medoid] = members
+            end
+        end
+        for (i,connected_flag) in enumerate(connected_list)
+            if !connected_flag
+                medoid_dict[i] = [i]
+            end
+        end
+        elapsed_time = round(time()-start_time,digits=2)
+        converged = n_iterations < max_iter
+        @info "\tkmedoids: $(n-length(connected_indices)) isolated, $(length(connected_indices)) grouped over $(n_iterations) iterations ($(converged ? "converged" : "hit max_iter")); $(length(medoid_dict)) medoids, $(n) objects; $(elapsed_time)s"
+        return medoid_dict
     end
 
 end
