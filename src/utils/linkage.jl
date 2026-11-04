@@ -205,7 +205,7 @@ function _soft_kernel_density(D,sizes,threshold)
         return tied_candidates[argmax(density_vec[tied_candidates])]
     end
 
-    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=50,radii=nothing)
+    function threshold_bound_kmedoids(D,sizes,threshold;max_iter=10,radii=nothing)
         n = size(D,1)
 
         if isnothing(radii)
@@ -273,7 +273,7 @@ function _soft_kernel_density(D,sizes,threshold)
         end
         elapsed_time = round(time()-start_time,digits=2)
         converged = n_iterations < max_iter
-        @info "\tkmedoids: $(n-length(connected_indices)) isolated, $(length(connected_indices)) grouped over $(n_iterations) iterations ($(converged ? "converged" : "hit max_iter")); $(length(medoid_dict)) medoids, $(n) objects; $(elapsed_time)s"
+        # @info "\tkmedoids: $(n-length(connected_indices)) isolated, $(length(connected_indices)) grouped over $(n_iterations) iterations ($(converged ? "converged" : "hit max_iter")); $(length(medoid_dict)) medoids, $(n) objects; $(elapsed_time)s"
         return medoid_dict
     end
 
