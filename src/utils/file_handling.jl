@@ -435,11 +435,10 @@ module FileHandling
 
     function final_cleanup(output_dir)
         pathlist = [
-            glob("*.ids",output_dir); 
-            glob("*.bin",output_dir); 
-            glob("*.group.tsv",output_dir); 
-            glob("*.cache.tsv",output_dir); 
-            glob("*.cache.bin",output_dir)
+            glob("*.ids",output_dir);
+            glob("*.bin",output_dir);
+            glob("*.group.tsv",output_dir);
+            glob("*.cache.tsv",output_dir)
         ]
         for path in pathlist
             rm(path)

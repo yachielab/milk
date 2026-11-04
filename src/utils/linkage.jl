@@ -6,7 +6,35 @@ module Linkage
            ward_percentile_threshold,
            compute_ward_cost_matrix,
            compute_average_cost_matrix,
-           average_cost_update
+           average_cost_update,
+           identify_connected_objects
+
+    """
+    Objects that can group with at least one other: some j with C[i,j] + radii[i] <= threshold (i could join j),
+    checked in both directions. Every other object can only ever be a singleton, so each linkage skips them:
+        medoid: nothing is within its reach and it is within nobody's reach
+        ward/average: reducible linkages, so merging other groups never lowers its costs
+    With a low threshold this removes most objects of a partition.
+    """
+    function identify_connected_objects(C,threshold;radii=nothing)
+        n = size(C,1)
+        if isnothing(radii)
+            radii = zeros(n)
+        end
+        connected_list = falses(n)
+        @inbounds for j in 1:n
+            for i in 1:n
+                if isnan(C[i,j])
+                    error("NaN distance between objects $(i) and $(j)")
+                end
+                if (i != j) && (C[i,j]+radii[i] <= threshold)
+                    connected_list[i] = true
+                    connected_list[j] = true
+                end
+            end
+        end
+        return connected_list
+    end
 
     """
     Lance-Williams formula, Ward linkage: squared merge cost update so you don't have to recompute cost
@@ -86,7 +114,7 @@ module Linkage
 
         sizes = copy(groupsizes)
         groups_dict = Dict(i => [i] for i in 1:n)
-        active_groups = Set(1:n)
+        active_groups = Set(findall(identify_connected_objects(C,max_cost)))
 
         #=
         Nearest-neighbor chain: avoids searching the matrix for the global cheapest pair after every merge

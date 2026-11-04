@@ -1,5 +1,8 @@
 # function main()
 function main()
+    logger = ConsoleLogger(stdout,Logging.Info)
+    global_logger(logger)
+
     args = parse_arguments()
     validate_args(args)
 
@@ -16,9 +19,6 @@ function main()
             output_dir=args["stratification-output-dir"]
         )
     else
-        logger = ConsoleLogger(stdout,Logging.Info)
-        global_logger(logger)
-
         @info "MILK"
         flush(stdout)
 

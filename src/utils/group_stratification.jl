@@ -10,7 +10,8 @@ module GroupStratification
                           GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache,load_group_spreads
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance,size_weighted_distance_matrix
     using ..HPC: submit_stratification_batch_array_jobs
-    using ..Linkage: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,average_cost_update
+    using ..Linkage: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,
+                     average_cost_update,identify_connected_objects
 
     export stratification_process_direct_execution,
            stratification_process_distributed_execution,
@@ -389,13 +390,22 @@ module GroupStratification
             radii = zeros(n)
         end
 
+        start_time = time()
+
         # soft-kernel density ordering of cells (most->least dense)
         density_vec = _soft_kernel_density(D,sizes,threshold)
         ordered_indices = sortperm(density_vec,rev=true,alg=MergeSort)
 
+        connected_list = identify_connected_objects(D,threshold;radii=radii)
+        connected_indices = findall(connected_list)
+        ordered_indices = [i for i in ordered_indices if connected_list[i]] # same density order
+    
         # key: medoid index; value: vector of member indices
         medoid_dict = Dict{Int,Vector{Int}}()
+
+        n_iterations = 0
         for iter in 1:max_iter
+            n_iterations = iter
 
             updated_medoid_dict = Dict{Int,Vector{Int}}(medoid => Int[] for medoid in keys(medoid_dict))
             update_flag = false
@@ -406,7 +416,7 @@ module GroupStratification
                 end
             end
     
-            for i in 1:n
+            for i in connected_indices
                 if haskey(updated_medoid_dict,i)
                     push!(updated_medoid_dict[i],i)
                     continue
@@ -434,6 +444,14 @@ module GroupStratification
                 medoid_dict[optimized_medoid] = members
             end
         end
+        for (i,disconnected_flag) in enumerate(connected_list)
+            if !disconnected_flag
+                medoid_dict[i] = [i]
+            end
+        end
+        elapsed_time = round(time()-start_time,digits=2)
+        converged = n_iterations < max_iter
+        @info "\tkmedoids: $(n-length(connected_indices)) isolated, $(length(connected_indices)) grouped over $(n_iterations) iterations ($(converged ? "converged" : "hit max_iter")); $(length(medoid_dict)) medoids, $(n) objects; $(elapsed_time)s"
         return medoid_dict
     end
 
