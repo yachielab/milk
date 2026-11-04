@@ -1,15 +1,16 @@
 module HPC
 
     using Glob
+    using JSON
     using ..FileHandling: write_values_as_txt
 
-    export submit_stratification_batch_array_jobs
+    export submit_stratification_batch_array_jobs,
+           read_stratification_parameters
 
-    function instantiate_array_job_script(;label,n_batches,array_inputs_path,threshold,output_dir,invariant_args)
+    function instantiate_array_job_script(;label,n_batches,array_inputs_path,parameters_path,invariant_args)
         jobs_dir = joinpath(invariant_args["output-dir"],"jobs")
         stdout_dir = joinpath(jobs_dir,"stdout")
         stderr_dir = joinpath(jobs_dir,"stderr")
-        size_weighted_flag = invariant_args["size-weighted"] ? "--stratification-size-weighted" : ""
         mkpath(stdout_dir)
         mkpath(stderr_dir)
         if invariant_args["job-scheduler"] == "sge"
@@ -24,13 +25,7 @@ module HPC
             #\$ -e $(stderr_dir)\n
             source $(invariant_args["environment-path"])\n
             ARRAY_INPUTS_PATH=$(array_inputs_path)
-            THRESHOLD=$(threshold)
-            PERCENTILE=$(invariant_args["percentile"])
-            METRIC=$(invariant_args["metric"])
-            LINKAGE=$(invariant_args["linkage"])
-            CACHE_SIZE=$(invariant_args["cache-size"])
-            SIZE_WEIGHTED_FLAG=$(size_weighted_flag)
-            OUTPUT_DIR=$(output_dir)\n
+            PARAMETERS_PATH=$(parameters_path)\n
             BATCH_DIR=\$( sed -n \${SGE_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
             export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
             """
@@ -48,13 +43,7 @@ module HPC
             #SBATCH --error=$(stderr_dir)/%A_%a.err\n
             source $(invariant_args["environment-path"])\n
             ARRAY_INPUTS_PATH=$(array_inputs_path)
-            THRESHOLD=$(threshold)
-            PERCENTILE=$(invariant_args["percentile"])
-            METRIC=$(invariant_args["metric"])
-            LINKAGE=$(invariant_args["linkage"])
-            SIZE_WEIGHTED_FLAG=$(size_weighted_flag)
-            CACHE_SIZE=$(invariant_args["cache-size"])
-            OUTPUT_DIR=$(output_dir)\n
+            PARAMETERS_PATH=$(parameters_path)\n
             BATCH_DIR=\$( sed -n \${SLURM_ARRAY_TASK_ID}p \$ARRAY_INPUTS_PATH )\n
             export JULIA_NUM_THREADS=$(invariant_args["threads"])\n
             """
@@ -66,14 +55,8 @@ module HPC
         milk --group-stratification-mode \\
         --input-path \$BATCH_DIR \\
         --stratification-input-dir \$BATCH_DIR \\
-        --stratification-threshold \$THRESHOLD \\
-        --stratification-percentile \$PERCENTILE \\
-        --stratification-metric \$METRIC \\
-        --stratification-linkage \$LINKAGE \\
-        --stratification-cache-size \$CACHE_SIZE \\
-        \$SIZE_WEIGHTED_FLAG \\
-        -T $(invariant_args["threads"]) \\
-        --stratification-output-dir \$OUTPUT_DIR
+        --stratification-parameters \$PARAMETERS_PATH \\
+        -T $(invariant_args["threads"])
         """
 
         script_path = joinpath(jobs_dir,"$(label).array_jobs.sh")
@@ -81,16 +64,17 @@ module HPC
         return script_path
     end
 
-     function submit_stratification_batch_array_jobs(;batches,files,threshold,label,partition_dir,invariant_args)
-        n = length(files)
+    function submit_stratification_batch_array_jobs(;batches,files,threshold,label,partition_dir,invariant_args)
+        n = length(files) # number of .flag files to wait for
         array_inputs_path = joinpath(partition_dir,"batch_dirlist.txt")
         write_values_as_txt(batches,array_inputs_path)
+        parameters_path = joinpath(partition_dir,"stratification_parameters.json")
+        write_stratification_parameters(parameters_path,threshold,partition_dir,invariant_args)
         script_path = instantiate_array_job_script(
             label=label,
             n_batches=length(batches),
             array_inputs_path=array_inputs_path,
-            threshold=threshold,
-            output_dir=partition_dir,
+            parameters_path=parameters_path,
             invariant_args=invariant_args
         )
         if invariant_args["job-scheduler"] == "sge"
@@ -122,5 +106,29 @@ module HPC
         @info "\t\tFinished polling! (elapsed time: $elapsed_time min)"
         flush(stdout)
         return
+    end
+
+    #=
+    settings every array job needs for one iteration's group stratification, written once by the main
+    process into the partition directory (instead of passing each one through the job script)
+    =#
+    function write_stratification_parameters(parameters_path,threshold,output_dir,invariant_args)
+        parameters = Dict(
+            "threshold"     => threshold,
+            "percentile"    => invariant_args["percentile"],
+            "metric"        => invariant_args["metric"],
+            "linkage"       => invariant_args["linkage"],
+            "cache-size"    => invariant_args["cache-size"],
+            "size-weighted" => invariant_args["size-weighted"],
+            "verbose"       => invariant_args["verbose"],
+            "output-dir"    => output_dir
+        )
+        open(parameters_path,"w") do io
+            JSON.print(io,parameters,4)
+        end
+    end
+
+    function read_stratification_parameters(parameters_path)
+        return JSON.parsefile(parameters_path)
     end
 end

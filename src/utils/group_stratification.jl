@@ -9,7 +9,7 @@ module GroupStratification
                           metadata_path,binary_path,group_meta_path,
                           GroupCache,cache_meta_path,cache_binary_path,count_rows,load_milk_cache,load_group_spreads
     using ..PairwiseComparisons: map_distance_function,compute_pairwise_distance_matrix,compute_euclidean_distance,size_weighted_distance_matrix
-    using ..HPC: submit_stratification_batch_array_jobs
+    using ..HPC: submit_stratification_batch_array_jobs,read_stratification_parameters
     using ..Linkage: compute_ward_cost_matrix,ward_groups,ward_percentile_threshold,compute_average_cost_matrix,
                      average_cost_update,threshold_bound_kmedoids
 
@@ -49,11 +49,21 @@ module GroupStratification
         return
     end
 
-    function batch_group_stratification_hpc_mode(;input_dir,threshold,percentile,metric,linkage,cache_size,size_weighted,verbose,output_dir)
+    function batch_group_stratification_hpc_mode(;input_dir,parameters_path)
+        parameters = read_stratification_parameters(parameters_path)
+        threshold = parameters["threshold"]
+        percentile = parameters["percentile"]
+        metric = parameters["metric"]
+        linkage = parameters["linkage"]
+        cache_size = parameters["cache-size"]
+        size_weighted = parameters["size-weighted"]
+        verbose = parameters["verbose"]
+        output_dir = parameters["output-dir"]
 
         @info "Starting distributed stratification process"
         @info "  $(nworkers()) workers"
         @info "  Input batch directory: $(input_dir)"
+        @info "  Parameters: $(parameters_path)"
         @info "  Threshold: $(threshold)"
         @info "  Percentile: $(percentile)"
         @info "  Metric: $(metric)"
@@ -74,9 +84,7 @@ module GroupStratification
                 @info info
             end
         end
-
     end
-
     function stratification_process_direct_execution(;data_dict,groupsize_dict,spread_dict,perc,cache_dict,cache_size,size_weighted,distance_function,linkage,label,output_dir)
         """
         This is only called when performing direct execution of recursive iterations.

@@ -115,22 +115,7 @@ module CLI
                 action = :store_true
             "--stratification-input-dir"
                 arg_type = String
-            "--stratification-threshold"
-                arg_type = Float64
-            "--stratification-percentile"
-                arg_type = Float64
-                default = nothing
-            "--stratification-metric"
-                arg_type = String
-            "--stratification-linkage"
-                arg_type = String
-                default = "medoid"
-            "--stratification-cache-size"
-                arg_type = Int
-                default = 0
-            "--stratification-size-weighted"
-                action = :store_true
-            "--stratification-output-dir"
+            "--stratification-parameters"
                 arg_type = String
         end
 
@@ -192,8 +177,8 @@ module CLI
             if (isnothing(args["stratification-input-dir"]) || !isdir(args["stratification-input-dir"]))
                 error("Invalid '--stratification-input-dir' specified ($(args["stratification-input-dir"])).")
             end
-            if (isnothing(args["stratification-output-dir"]) || !isdir(args["stratification-output-dir"]))
-                error("Invalid '--stratification-output-dir' specified ($(args["stratification-output-dir"])).")
+            if (isnothing(args["stratification-parameters"]) || !isfile(args["stratification-parameters"]))
+                error("Invalid '--stratification-parameters' specified ($(args["stratification-parameters"])).")
             end
         end
         if !(args["linkage"] in ("medoid","ward","average"))
