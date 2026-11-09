@@ -23,11 +23,21 @@ function main()
 
         absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
         conversion_start = time()
-        milk_input_path = prepare_milk_input(absolute_input_path,label)
+        milk_input_path = prepare_milk_input(absolute_input_path,label;incremental_path=args["incremental-path"])
         conversion_time = round(time()-conversion_start,digits=2)
         if args["convert-input-only"]
             @info "Conversion complete (--convert-input-only): $(milk_input_path)"
             return
+        end
+    
+        #= Incremental MILK
+        Initial tree is built from the earliest stage, later stages are placed onto it
+        =#
+        stages_path = nothing
+        if !isnothing(args["incremental-path"])
+            stages_path = milk_input_path
+            milk_input_path = String(split(readline(stages_path),'\t')[2])
+            @info "Incremental MILK: initial tree from $(milk_input_path)"
         end
     
         @info "Using $(nworkers()) worker(s) for distributed processing"

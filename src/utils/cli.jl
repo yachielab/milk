@@ -72,6 +72,10 @@ module CLI
             "--convert-input-only"
                 action = :store_true
                 help = "Convert the input CSV to MILK's binary format (.ids/.bin/.group.tsv next to the CSV) and exit."
+            "--incremental-path"
+                arg_type = String
+                default = nothing
+                help = "Tab-separated table of object ID and integer stage (no header). Converts the input into one set of binaries per stage and builds the tree incrementally, stage by stage in increasing order."
             "--output-dir","-o"
                 arg_type = String
                 default = "./milk.out"
@@ -191,6 +195,15 @@ module CLI
         end
         if args["cache-size"] < 0
             error("'--cache-size' must be >= 0 (got $(args["cache-size"])).")
+        end
+
+        if !isnothing(args["incremental-path"])
+            if !isfile(args["incremental-path"])
+                error("Invalid '--incremental-path' specified ($(args["incremental-path"])).")
+            end
+            if args["linkage"] != "ward"
+                error("'--incremental-path' requires '--linkage ward' (got $(args["linkage"])).")
+            end
         end
 
         if centroid_linkage && args["cache-size"] > 0

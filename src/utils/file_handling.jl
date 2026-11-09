@@ -285,6 +285,23 @@ module FileHandling
         return cache_dict
     end
 
+    function read_incremental_ids_as_dictionary(path)
+        """ id -> stage (integer; stages are placed in increasing order) """
+        stage_dict = Dict{String,Int}()
+        for line in eachline(path)
+            id,stage = split(line,"\t")
+            parsed_stage = tryparse(Int,strip(stage))
+            if isnothing(parsed_stage)
+                error("Stage of $(id) in $(path) is not an integer: $(stage)")
+            end
+            stage_dict[id] = parsed_stage
+        end
+        if isempty(stage_dict)
+            error("No ids in $(path)")
+        end
+        return stage_dict
+    end
+
     function convert_input_csv_to_binaries(csv_path,ids_path)
         nan_count = 0
         open(ids_path,"w") do id_io
@@ -310,6 +327,57 @@ module FileHandling
         if nan_count > 0
             @warn "Dropped $(nan_count) rows with missing values from $(csv_path)"
         end
+    end
+
+    function convert_input_csv_to_stage_binaries(csv_path,base_path,stage_dict)
+        """ one set of binaries per stage: <base_path>.stage_XXXXXXXX.ids/.bin/.group.tsv; returns stage => number of rows """
+        files = Dict{Int,Any}()
+        stage_counts = Dict{Int,Int}()
+        n_rows = 0
+        n_rows_without_stage = 0
+        n_missing_values = 0
+        open_file_read(csv_path,gzip=endswith(csv_path,".gz")) do instream
+            for line in eachline(instream)
+                n_rows += 1
+                entry = split(line,",")
+                if !haskey(stage_dict,entry[1])
+                    n_rows_without_stage += 1
+                    continue
+                end
+                vec = [val == "" ? NaN32 : parse(Float32,val) for val in entry[2:end]]
+                if any(isnan,vec)
+                    n_missing_values += 1
+                    continue
+                end
+                stage = stage_dict[entry[1]]
+                if !haskey(files,stage)
+                    files[stage] = open_milk_files(incremental_ids_path(base_path,stage),"w")
+                    stage_counts[stage] = 0
+                end
+                println(files[stage].ids,entry[1])
+                write(files[stage].bin,vec)
+                println(files[stage].group,join([entry[1],1,0.0],"\t"))
+                stage_counts[stage] += 1
+            end
+        end
+        for milk_files in values(files)
+            close_milk_files(milk_files)
+        end
+
+        n_rows_with_stage = n_rows - n_rows_without_stage
+        if n_rows_with_stage == 0
+            error("No ids shared between $(csv_path) and the stage table")
+        end
+        if n_rows_without_stage > 0
+            @warn "Dropped $(n_rows_without_stage) rows of $(csv_path) whose id is not in the stage table"
+        end
+        if length(stage_dict) > n_rows_with_stage
+            @warn "$(length(stage_dict)-n_rows_with_stage) ids in the stage table are not in $(csv_path)"
+        end
+        if n_missing_values > 0
+            @warn "Dropped $(n_missing_values) rows with missing values from $(csv_path)"
+        end
+        return stage_counts
     end
 
     struct GroupCache
@@ -454,10 +522,8 @@ module FileHandling
         end
     end
 
-    function prepare_milk_input(csv_path,label)
-        milk_input_dir = joinpath(dirname(csv_path),"$(label).input")
-        file_label = replace(basename(csv_path),r"\.csv(\.gz)?$" => "")
 
+    function _prepare_whole_milk_input(csv_path,milk_input_dir,file_label) # ;P
         ids_path = joinpath(milk_input_dir,"$(file_label).ids")
         source_path = joinpath(milk_input_dir,"$(file_label).source")
         source = "$(filesize(csv_path)),$(mtime(csv_path))"
@@ -471,12 +537,54 @@ module FileHandling
         @info "Converting input file to MILK binaries: $(ids_path)"
         @info "\tInput: $(csv_path)"
         @info "\tBinaries: $(milk_input_dir)"
-        mkpath(milk_input_dir)
         tmp_ids_path = joinpath(milk_input_dir,"$(file_label).tmp_$(getpid()).ids")
         convert_input_csv_to_binaries(csv_path,tmp_ids_path)
         mv_milk_files(tmp_ids_path,ids_path;force=true)
         write(source_path,source)
         return ids_path
+    end
+
+    function incremental_ids_path(base_path,stage)
+        return "$(base_path).stage_$(lpad(stage,8,'0')).ids"
+    end
+
+    function _prepare_incremental_milk_input(csv_path,incremental_path,milk_input_dir,file_label)
+
+        base_path = joinpath(milk_input_dir,"$(file_label)")
+        stages_path = joinpath(milk_input_dir,"$(file_label).stages.tsv")
+        source_path = joinpath(milk_input_dir,"$(file_label).source")
+        source = "$(filesize(csv_path)),$(mtime(csv_path)),$(filesize(incremental_path)),$(mtime(incremental_path))"
+
+        if isfile(source_path) && read(source_path,String) == source && isfile(stages_path)
+            @info "Using existing stage-stratified MILK binaries: $(stages_path)"
+            return stages_path
+        end
+
+        @info "Converting input file to stage-stratified (incremental) MILK binaries: $(stages_path)"
+        @info "\tInput: $(csv_path)"
+        @info "\tStages: $(incremental_path)"
+        tmp_base_path = joinpath(milk_input_dir,"$(file_label).tmp_$(getpid())")
+        stage_dict = read_incremental_ids_as_dictionary(incremental_path)
+        stage_counts = convert_input_csv_to_stage_binaries(csv_path,tmp_base_path,stage_dict)
+        open(stages_path,"w") do io
+            for stage in sort(collect(keys(stage_counts)))
+                stage_ids = incremental_ids_path(base_path,stage)
+                mv_milk_files(incremental_ids_path(tmp_base_path,stage),stage_ids;force=true)
+                println(io,join([stage,stage_ids,stage_counts[stage]],"\t"))
+            end
+        end
+        write(source_path,source)
+        return stages_path
+    end
+
+    function prepare_milk_input(csv_path,label;incremental_path=nothing)
+        milk_input_dir = joinpath(dirname(csv_path),"$(label).input")
+        file_label = replace(basename(csv_path),r"\.csv(\.gz)?$" => "")
+        mkpath(milk_input_dir)
+        if isnothing(incremental_path)
+            return _prepare_whole_milk_input(csv_path,milk_input_dir,file_label)
+        end
+        return _prepare_incremental_milk_input(csv_path,incremental_path,milk_input_dir,file_label)
     end
 
 end
