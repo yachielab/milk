@@ -23,7 +23,11 @@ function main()
 
         absolute_input_path = isabspath(args["input-path"]) ? args["input-path"] : joinpath(pwd(),args["input-path"])
         conversion_start = time()
-        milk_input_path = prepare_milk_input(absolute_input_path,label;incremental_path=args["incremental-path"])
+        if isnothing(args["incremental-path"])
+            milk_input_path = prepare_milk_input(absolute_input_path,label)
+        else
+            milk_input_path = prepare_incremental_milk_input(absolute_input_path,args["incremental-path"],label)
+        end
         conversion_time = round(time()-conversion_start,digits=2)
         if args["convert-input-only"]
             @info "Conversion complete (--convert-input-only): $(milk_input_path)"
@@ -34,15 +38,24 @@ function main()
         Initial tree is built from the earliest stage, later stages are placed onto it
         =#
         stages_path = nothing
+        initial_stage = nothing
         if !isnothing(args["incremental-path"])
             stages_path = milk_input_path
-            milk_input_path = String(split(readline(stages_path),'\t')[2])
-            @info "Incremental MILK: initial tree from $(milk_input_path)"
+            fields = split(readline(stages_path),'\t')
+            initial_stage = parse(Int,fields[1])
+            milk_input_path = String(fields[2])
+            @info "Incremental MILK: initial tree from stage $(initial_stage) ($(milk_input_path))"
         end
     
         @info "Using $(nworkers()) worker(s) for distributed processing"
         log_args(args)
+        output_dir = abspath(args["output-dir"])
+        milk_output_dir = output_dir
+        if !isnothing(stages_path)
+            milk_output_dir = joinpath(output_dir,"stage_$(lpad(initial_stage,8,'0'))")
+        end
         invariant_args = instantiate_invariant_args(args)
+        invariant_args["output-dir"] = milk_output_dir # set once, before any use
 
         if isdir(args["output-dir"])
             if args["force-overwrite"]
@@ -52,14 +65,14 @@ function main()
                 error("Output directory ($(args["output-dir"])) already exists! Exiting.")
             end
         end
-        mkdir(invariant_args["output-dir"])
+        mkpath(milk_output_dir)
 
         recursion_start = time()
         i = 0 # Initial recursion
 
         full_label = "$(label).iteration_$(lpad(string(i),8,'0'))"
 
-        input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
+        input_path = joinpath(milk_output_dir,"$(full_label).input.ids")
         symlink(milk_input_path,input_path)
         symlink(binary_path(milk_input_path),binary_path(input_path))
         symlink(group_meta_path(milk_input_path),group_meta_path(input_path))
@@ -100,7 +113,7 @@ function main()
                 @info "Iteration: $i ($n objects)"
                 flush(stdout)
 
-                input_path = joinpath(invariant_args["output-dir"],"$(full_label).input.ids")
+                input_path = joinpath(milk_output_dir,"$(full_label).input.ids")
                 symlink(representatives_path,input_path)
                 symlink(binary_path(representatives_path),binary_path(input_path))
                 symlink(group_meta_path(representatives_path),group_meta_path(input_path))
@@ -124,15 +137,27 @@ function main()
         @info "\nCompleted recursive downsampling procedure."
         flush(stdout)
 
-        final_cleanup(invariant_args["output-dir"])
+        final_cleanup(milk_output_dir)
         recursion_time = round(time()-recursion_start,digits=2)
+
+        if !isnothing(stages_path)
+            @info "Writing backbone (final) iterations to $(output_dir)"
+            groups_pathlist = sort(glob("$(label).iteration_*.groups.jsonl.gz",milk_output_dir))
+            previous_ids_paths = [milk_input_path] # members of iteration 0 are the stage input cells
+            for (i,groups_path) in enumerate(groups_pathlist)
+                ids_path = final_iteration_path(output_dir,label,i-1)
+                write_final_iteration(previous_ids_paths,groups_path,ids_path,initial_stage)
+                previous_ids_paths = [ids_path]
+            end
+            place_stages(stages_path,output_dir,label;chunk_size=args["partition-size"])
+        end
 
         reconstruction_start = time()
         if args["skip-reconstruction"]
             @info "Skipping cell hierarchy reconstruction."
         else
             @info "Reconstructing hierarchical graph..."
-            hierarchical_reconstruction(args["output-dir"])
+            hierarchical_reconstruction(output_dir)
         end
         reconstruction_time = round(time()-reconstruction_start,digits=2)
         @info "Runtime (seconds): conversion $conversion_time; recursion $recursion_time; reconstruction $reconstruction_time; total $(round(conversion_time+recursion_time+reconstruction_time,digits=2))"

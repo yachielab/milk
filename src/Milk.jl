@@ -13,6 +13,7 @@ module Milk
     using LinearAlgebra
 
     include("utils/file_handling.jl")
+    include("utils/incremental_file_handling.jl")
     include("utils/hpc.jl")
     include("utils/linkage.jl")
     include("utils/pairwise_comparisons.jl")
@@ -22,8 +23,10 @@ module Milk
     include("utils/cli.jl")
     include("utils/partitioning.jl")
     include("utils/recursion.jl")
+    include("utils/placement.jl")
 
     using .FileHandling
+    using .IncrementalFileHandling
     using .PairwiseComparisons
     using .GroupAggregation
     using .GroupStratification
@@ -32,6 +35,7 @@ module Milk
     using .HPC
     using .Recursion
     using .Linkage
+    using .Placement
 
     include("main.jl")
     export main
