@@ -26,7 +26,7 @@ module HierarchicalReconstruction
         return isempty(group_dict["specificity"]) ? "" : string(round(mean(group_dict["specificity"]); sigdigits=4))
     end
 
-    function hierarchical_reconstruction(input_dir)
+    function hierarchical_reconstruction(input_dir;pattern="*.groups.jsonl.gz")
 
         @info "Hierarchical reconstruction"
         flush(stdout)
@@ -36,9 +36,9 @@ module HierarchicalReconstruction
         vertices_path = joinpath(output_dir,"vertices.csv.gz")
         edges_path = joinpath(output_dir,"edges.csv.gz")
 
-        pathlist = sort(glob("*.groups.jsonl.gz",input_dir))
+        pathlist = sort(glob(pattern,input_dir))
         if length(pathlist) == 0
-            error("No '.groups.jsonl.gz' files found in directory: $(input_dir)")
+            error("No '$(pattern)' files found in directory: $(input_dir)")
         end
 
         id_map = Dict{String,String}()

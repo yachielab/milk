@@ -5,9 +5,7 @@ module IncrementalFileHandling
     using ..FileHandling: open_file_read,open_milk_files,close_milk_files,mv_milk_files,
                           load_milk_binaries,load_groups_as_dictionary,group_meta_path,metadata_path
 
-    export prepare_incremental_milk_input,
-           final_iteration_path,
-           write_final_iteration
+    export prepare_incremental_milk_input
 
     function incremental_ids_path(base_path,stage)
         return "$(base_path).stage_$(lpad(stage,8,'0')).ids"
@@ -23,7 +21,12 @@ module IncrementalFileHandling
         source_path = joinpath(milk_input_dir,"$(file_label).source")
         source = "$(filesize(csv_path)),$(mtime(csv_path)),$(filesize(incremental_path)),$(mtime(incremental_path))"
 
-        if isfile(source_path) && read(source_path,String) == source && isfile(stages_path)
+        n_columns = 0
+        if isfile(stages_path)
+            first_stage_ids_path = String(split(readline(stages_path),'\t')[2])
+            n_columns = length(split(readline(group_meta_path(first_stage_ids_path)),'\t'))
+        end
+        if isfile(source_path) && read(source_path,String) == source && n_columns == 6
             @info "Using existing stage-stratified MILK binaries: $(stages_path)"
             return stages_path
         end
@@ -113,7 +116,7 @@ module IncrementalFileHandling
                 end
                 println(files[stage].ids,entry[1])
                 write(files[stage].bin,vec)
-                println(files[stage].group,join([entry[1],1,0.0],"\t"))
+                println(files[stage].group,join([entry[1],1,0.0,0.0,stage,0],"\t")) # id, size, spread, radius, stage, n_cached
                 stage_counts[stage] += 1
             end
         end
@@ -135,67 +138,6 @@ module IncrementalFileHandling
             @warn "Dropped $(n_missing_values) rows with missing values from $(csv_path)"
         end
         return stage_counts
-    end
-
-
-    function final_iteration_path(output_dir,label,iteration)
-        return joinpath(output_dir,"$(label).final.iteration_$(lpad(iteration,8,'0')).ids")
-    end
-
-    function write_final_iteration(previous_ids_paths,groups_path,ids_path,stage;node_stage_dict=Dict{String,Int}())
-        """
-        One backbone iteration, from the iteration below (the members) and this iteration's groups.
-        previous_ids_paths: the iteration below; at iteration 0 the cells, possibly from several stages' input binaries
-        .group.tsv columns: id, size, spread, radius, stage (node_stage_dict for existing nodes, else stage)
-        """
-        previous_dict = Dict{String,Vector{Float32}}()
-        previous_size_dict = Dict{String,Int}()
-        previous_spread_dict = Dict{String,Float64}()
-        previous_radius_dict = Dict{String,Float64}()
-        for previous_ids_path in previous_ids_paths
-            data_dict,size_dict = load_milk_binaries(previous_ids_path)
-            merge!(previous_dict,data_dict)
-            merge!(previous_size_dict,size_dict)
-            for line in eachline(group_meta_path(previous_ids_path))
-                fields = split(line,'\t')
-                id = String(fields[1])
-                previous_spread_dict[id] = parse(Float64,fields[3])
-                if length(fields) == 5
-                    previous_radius_dict[id] = parse(Float64,fields[4])
-                else
-                    previous_radius_dict[id] = 0.0 # cells (the stage input binaries)
-                end
-            end
-        end
-        groups = load_groups_as_dictionary(groups_path)["groups"]
-
-        files = open_milk_files(ids_path,"w")
-        for (id,members) in groups
-            size = 0
-            centroid = zeros(Float64,length(previous_dict[members[1]]))
-            for member in members
-                size += previous_size_dict[member]
-                centroid .+= previous_size_dict[member] .* previous_dict[member]
-            end
-            centroid ./= size
-
-            spread = 0.0
-            radius = 0.0
-            for member in members
-                d = sqrt(sum((previous_dict[member] .- centroid).^2))
-                spread += previous_size_dict[member]*(previous_spread_dict[member]+d^2)
-                radius = max(radius,d+previous_radius_dict[member])
-            end
-            spread /= size
-
-            println(files.ids,id)
-            write(files.bin,Float32.(centroid))
-            println(files.group,join([id,size,spread,radius,get(node_stage_dict,id,stage)],'\t')) # existing nodes keep their stage
-        end
-        close_milk_files(files)
-        final_groups_path = replace(ids_path,r"\.ids$" => ".groups.jsonl.gz")
-        cp(groups_path,final_groups_path;force=true)
-        cp(metadata_path(groups_path),metadata_path(final_groups_path);force=true)
     end
 
 end

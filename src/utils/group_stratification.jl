@@ -205,7 +205,8 @@ module GroupStratification
         start_time = time()
 
         n_comparisons = 0
-        data_dict,groupsize_dict = load_milk_binaries(path)
+	    data_dict,info_dict = load_milk_binaries(path)
+        groupsize_dict = info_dict.size
         spread_dict = load_group_spreads(path)
         cache_dict = cache_size >= 1 ? load_milk_cache(path,data_dict,groupsize_dict) : nothing
         if length(data_dict) < 2

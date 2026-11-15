@@ -43,13 +43,14 @@ module GroupAggregation
     Aggregation of groups across partitions.
     """
     function group_aggregation(;label,threshold,input_path,partition_dir,invariant_args)
+        n_partitions = length(glob("*.groups.jsonl.gz",partition_dir))
         concat_representatives_path,concat_groups_path,n_groups = concatenating_aggregation(label,partition_dir,invariant_args)
-        @info "\t$n_groups groups after concatenation across partitioned results."
+        @info "\t$n_groups groups after concatenation across $(n_partitions) partitioned results."
         flush(stdout)
-        
+
         representatives_path = joinpath(invariant_args["output-dir"],"$(label).representatives.ids")
         groups_path = joinpath(invariant_args["output-dir"],"$(label).groups.jsonl.gz")
-        if count_rows(concat_representatives_path) <= invariant_args["merge-threshold"]
+        if n_partitions > 1 && count_rows(concat_representatives_path) <= invariant_args["merge-threshold"]
             stratifying_aggregation(
                 representatives_path=representatives_path,
                 groups_path=groups_path,
@@ -78,7 +79,8 @@ module GroupAggregation
         start_time = time()
         distance_function = map_distance_function(metric)
         
-        concat_representatives_dict,concat_groupsize_dict = load_milk_binaries(concat_representatives_path)
+        concat_representatives_dict,concat_info_dict = load_milk_binaries(concat_representatives_path)
+        concat_groupsize_dict = concat_info_dict.size
         cache_dict = cache_size >= 1 ? load_milk_cache(concat_representatives_path,concat_representatives_dict,concat_groupsize_dict) : nothing
         # partition representatives' own caches from the level input (the caches their radii were measured against),
         # so radius + merge distance bounds each member's distance to the final representative

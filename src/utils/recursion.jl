@@ -49,7 +49,7 @@ module Recursion
             invariant_args=invariant_args
         )
         exclusion_set = Set{String}([representatives_path])
-        clean_directory(invariant_args["output-dir"],partition_dir,exclusion_set)
+        clean_directory(invariant_args["output-dir"],partition_dir,exclusion_set;keep_representatives=invariant_args["keep-intermediate-files"])
         return representatives_path,groups_path
     end
 
@@ -65,7 +65,8 @@ module Recursion
 
         distance_function = map_distance_function(invariant_args["metric"])
 
-        data_dict,groupsize_dict = load_milk_binaries(representatives_path)
+        data_dict,info_dict = load_milk_binaries(representatives_path)
+        groupsize_dict = info_dict.size
         n = length(data_dict)
 
         cache_dict = invariant_args["cache-size"] >= 1 ? load_milk_cache(representatives_path,data_dict,groupsize_dict) : nothing

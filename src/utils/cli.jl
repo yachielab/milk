@@ -76,6 +76,13 @@ module CLI
                 arg_type = String
                 default = nothing
                 help = "Tab-separated table of object ID and integer stage (no header). Converts the input into one set of binaries per stage and builds the tree incrementally, stage by stage in increasing order."
+            "--reference-dir"
+                arg_type = String
+                default = nothing
+                help = "Placement mode: place the input (query) objects onto the MILK tree in this directory ('--label' names it). The updated tree is written to '--output-dir'."
+            "--keep-intermediate-files"
+                action = :store_true
+                help = "Keep per-iteration binaries (.ids/.bin/.group.tsv, caches)."
             "--output-dir","-o"
                 arg_type = String
                 default = "./milk.out"
@@ -143,6 +150,7 @@ module CLI
             "job-name"         => args["job-name"],
             "job-time"         => args["job-time"],
             "job-memory"       => args["job-memory"],
+            "keep-intermediate-files" => args["keep-intermediate-files"],
             "environment-path" => isnothing(args["environment-path"]) ? nothing : abspath(args["environment-path"]),
             "verbose"          => args["verbose"],
             "output-dir"       => abspath(args["output-dir"]),
@@ -203,6 +211,21 @@ module CLI
             end
             if args["linkage"] != "ward"
                 error("'--incremental-path' requires '--linkage ward' (got $(args["linkage"])).")
+            end
+        end
+    
+        if !isnothing(args["reference-dir"])
+            if !isdir(args["reference-dir"])
+                error("Invalid '--reference-dir' specified ($(args["reference-dir"])).")
+            end
+            if isnothing(args["label"])
+                error("Placement ('--reference-dir') requires '--label' (the reference tree's label).")
+            end
+            if abspath(joinpath(args["reference-dir"],"")) == abspath(joinpath(args["output-dir"],""))
+                error("'--output-dir' must differ from '--reference-dir'.")
+            end
+            if args["hpc-mode"] || !isnothing(args["incremental-path"])
+                error("Placement ('--reference-dir') supports neither '--hpc-mode' nor '--incremental-path'.")
             end
         end
 

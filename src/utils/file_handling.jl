@@ -26,6 +26,7 @@ module FileHandling
         cache_meta_path,
         cache_binary_path,
         load_milk_cache,
+        jsonl_path,
         count_rows,
         load_group_spreads,
         mv_milk_files,
@@ -33,12 +34,19 @@ module FileHandling
         rm_milk_files,
         open_milk_files,
         close_milk_files,
-        read_binary_rows
-
+        read_binary_rows,
+        load_milk_binary_matrix,
+        load_milk_group_information,
+        get_threshold,
+        get_iteration,
+        tree_level_path,
+        leaves_path,
+        symlink_milk_files,
+        write_tree_level
 
     ########## inline helpers ##########
     function metadata_path(groups_path)
-        return replace(groups_path, r"\.jsonl\.gz$" => ".metadata.tsv")
+        return replace(groups_path,r"\.jsonl\.gz$" => ".metadata.tsv")
     end
 
     function binary_path(ids_path)
@@ -48,6 +56,12 @@ module FileHandling
         return replace(ids_path,r"\.ids$" => ".bin")
     end
 
+    # .group.tsv: one row per object, in the order of the .ids file; tab-separated
+    #   id, size, spread, radius, stage, n_cached
+    #   spread   mean squared distance of the leaves under the object to its centroid (NaN if not computed)
+    #   radius   upper bound on the distance of the leaves under the object to its centroid (NaN if not computed)
+    #   stage    stage at which the object was created (0 outside incremental runs)
+    #   n_cached number of cached objects (0 without a cache)
     function group_meta_path(ids_path)
         if !endswith(ids_path,".ids")
             error("Expected a .ids path: $(ids_path)")
@@ -61,6 +75,10 @@ module FileHandling
 
     function cache_binary_path(ids_path)
         return replace(ids_path,r"\.ids$" => ".cache.bin")
+    end
+
+    function jsonl_path(ids_path)
+        return replace(ids_path,r"\.ids$" => ".groups.jsonl.gz")
     end
     ####################################
 
@@ -179,22 +197,61 @@ module FileHandling
         return X
     end
 
+    function load_milk_group_information(ids_path)
+        info_dict = (
+            size=Dict{String,Int}(),
+            spread=Dict{String,Float64}(),
+            radius=Dict{String,Float64}(),         
+            stage=Dict{String,Int}(),
+            n_cached=Dict{String,Int}()
+        )
+        for line in eachline(group_meta_path(ids_path))
+            id,size,spread,radius,stage,n_cached = split(line,'\t')
+            info_dict.size[id] = parse(Int,size)
+            info_dict.spread[id] = parse(Float64,spread)
+            info_dict.radius[id] = parse(Float64,radius)
+            info_dict.stage[id] = parse(Int,stage)
+            info_dict.n_cached[id] = parse(Int,n_cached)
+        end
+        return info_dict
+    end
+
+
+    function load_milk_binary_matrix(ids_path)
+        ids = readlines(ids_path)
+        n = length(ids)
+        m = div(filesize(binary_path(ids_path)),4*n)
+        X = Matrix{Float32}(undef,m,n)
+        open(binary_path(ids_path)) do io
+            read!(io,X)
+        end
+        return ids,X
+    end
 
     function load_milk_binaries(ids_path)
+        """
+        id => vector (Float32), and info_dict: every .group.tsv column as id => value
+        (info_dict.size, .spread, .radius, .stage, .n_cached; see group_meta_path for the columns)
+        """
         data_dict = Dict{String,Vector{Float32}}()
         stream_binary_file(ids_path) do id,vec
             data_dict[id] = copy(vec)
         end
-        groupsize_dict = Dict{String,Int}()
-        for line in eachline(group_meta_path(ids_path))
-            id,size = split(line,'\t')[1:2]
-            groupsize_dict[id] = parse(Int,size)
-        end
-        return data_dict,groupsize_dict
+        info_dict = load_milk_group_information(ids_path)
+        return data_dict,info_dict
+    end
+
+    function get_threshold(ids_path)
+        line = readline(metadata_path(jsonl_path(ids_path)))
+        return parse(Float64,split(line,"\t")[4])
+    end
+
+    function get_iteration(ids_path)
+        return parse(Int,split(split(basename(ids_path),"iteration_")[end],'.')[1])
     end
 
     function load_group_spreads(ids_path)
-        """ group id => spread (mean squared distance of the group's cells to its centroid) """
+        """ group id => spread (mean squared distance of the group's objects to its centroid) """
         spread_dict = Dict{String,Float64}()
         for line in eachline(group_meta_path(ids_path))
             fields = split(line,'\t')
@@ -212,19 +269,19 @@ module FileHandling
             open(binary_path(ids_path),"w") do binary_io
                 open(group_meta_path(ids_path),"w") do group_meta_io
                     for (id,vec) in data_dict
-                        spread = isnothing(spread_dict) ? 0.0 : spread_dict[id]
+                        spread = isnothing(spread_dict) ? NaN : spread_dict[id] # spreads are computed only by average linkage
                         println(id_io,id)
                         write(binary_io,vec)
                         if cache_flag
                             cache = cache_dict[id]
-                            fields = [id,groupsize_dict[id],spread,length(cache.cell_ids)]
+                            fields = [id,groupsize_dict[id],spread,NaN,0,length(cache.cell_ids)] # id, size, spread, radius, stage, n_cached
                             println(group_meta_io,join(fields,"\t"))
                             for k in eachindex(cache.cell_ids)
                                 println(cache_meta_io,cache.cell_ids[k],'\t',cache.subgroup_sizes[k],'\t',cache.subgroup_radii[k])
                                 write(cache_bin_io,cache.vecs[k])
                             end
                         else
-                            fields = [id,groupsize_dict[id],spread]
+                            fields = [id,groupsize_dict[id],spread,NaN,0,0] # id, size, spread, radius, stage, n_cached
                             println(group_meta_io,join(fields,"\t"))
                         end
                     end
@@ -238,7 +295,7 @@ module FileHandling
     end
 
     function _read_group_cache(cache_meta_io,cache_bin_io,n_cached,d)
-        """ reads the next n_cached cached cells (one group) from open cache files
+        """ reads the next n_cached cached objects (one group) from open cache files
         """
         cache = GroupCache(String[],Vector{Float32}[],Int[],Float64[])
         for _ in 1:n_cached
@@ -269,8 +326,9 @@ module FileHandling
         open(cache_meta_path(ids_path)) do cache_meta_io
             open(cache_binary_path(ids_path)) do cache_bin_io
                 for line in eachline(group_meta_path(ids_path))
-                    id,_,_,n_cached = split(line,'\t')
-                    n_cached = parse(Int,n_cached)
+                    fields = split(line,'\t') # id, size, spread, radius, stage, n_cached
+                    id = fields[1]
+                    n_cached = parse(Int,fields[6])
                     if isnothing(keep_ids) || String(id) in keep_ids
                         cache_dict[String(id)] = _read_group_cache(cache_meta_io,cache_bin_io,n_cached,d)
                     else
@@ -300,7 +358,7 @@ module FileHandling
                             end
                             println(id_io,entry[1])
                             write(binary_io,vec)
-                            fields = [entry[1],1,0.0]
+                            fields = [entry[1],1,0.0,0.0,0,0] # id, size, spread, radius, stage, n_cached
                             println(group_meta_io,join(fields,"\t"))
                         end
                     end
@@ -400,11 +458,13 @@ module FileHandling
         rm(cache_binary_path(ids_path),force=true)
     end
 
-    function clean_directory(work_dir,partition_dir,exclusion_set)
+    function clean_directory(work_dir,partition_dir,exclusion_set;keep_representatives=false)
         rm(partition_dir,recursive=true)
-        for path in glob("*.representatives.ids",work_dir)
-            if path in exclusion_set continue end
-            rm_milk_files(path)
+        if !keep_representatives
+            for path in glob("*.representatives.ids",work_dir)
+                if path in exclusion_set continue end
+                rm_milk_files(path)
+            end
         end
         for path in glob("*.input.ids",work_dir)
             if islink(path) && !isfile(path) # broken symlink: its representatives were deleted above
@@ -433,7 +493,7 @@ module FileHandling
         end
     end
 
-    function final_cleanup(output_dir)
+    function final_cleanup(output_dir;keep_representatives=false)
         pathlist = [
             glob("*.ids",output_dir);
             glob("*.bin",output_dir);
@@ -441,6 +501,9 @@ module FileHandling
             glob("*.cache.tsv",output_dir)
         ]
         for path in pathlist
+            if keep_representatives && !islink(path) # kept: representatives (regular files); input links still removed
+                continue
+            end
             rm(path)
         end
         return
@@ -463,7 +526,7 @@ module FileHandling
         source = "$(filesize(csv_path)),$(mtime(csv_path))"
 
         if isfile(source_path) && read(source_path,String) == source && isfile(group_meta_path(ids_path)) &&
-           length(split(readline(group_meta_path(ids_path)),'\t')) == 3
+           length(split(readline(group_meta_path(ids_path)),'\t')) == 6
             @info "Using existing MILK binaries: $(ids_path)"
             return ids_path
         end
@@ -477,5 +540,80 @@ module FileHandling
         mv_milk_files(tmp_ids_path,ids_path;force=true)
         write(source_path,source)
         return ids_path
+    end
+
+    function tree_level_path(output_dir,label,iteration)
+        return joinpath(output_dir,"$(label).iteration_$(lpad(iteration,8,'0')).ids")
+    end
+
+    function leaves_path(output_dir,label,tag)
+        return joinpath(output_dir,"$(label).leaves.$(tag).ids")
+    end
+
+    function symlink_milk_files(src_ids_path,dst_ids_path)
+        """ symlinks .ids/.bin/.group.tsv to the resolved source (links never chain) """
+        symlink(realpath(src_ids_path),dst_ids_path)
+        symlink(realpath(binary_path(src_ids_path)),binary_path(dst_ids_path))
+        symlink(realpath(group_meta_path(src_ids_path)),group_meta_path(dst_ids_path))
+    end
+
+    function write_tree_level(previous_ids_paths,groups,threshold,ids_path,stage;node_stage_dict=Dict{String,Int}())
+        """
+        One tree level, computed from its members (the level below; at iteration 0 the objects, possibly from several input
+        binaries) and its groups (node id => member ids): each node's centroid, size, spread (mean squared distance of its
+        objects to the centroid) and radius (upper bound), plus its groups file (member distances to the centroid; threshold
+        in the metadata). Stage: node_stage_dict for existing nodes, else stage.
+        """
+        previous_dict = Dict{String,Vector{Float32}}()
+        previous_size_dict = Dict{String,Int}()
+        previous_spread_dict = Dict{String,Float64}()
+        previous_radius_dict = Dict{String,Float64}()
+        for previous_ids_path in previous_ids_paths
+            data_dict,info_dict = load_milk_binaries(previous_ids_path)
+            merge!(previous_dict,data_dict)
+            merge!(previous_size_dict,info_dict.size)
+            merge!(previous_spread_dict,info_dict.spread)
+            merge!(previous_radius_dict,info_dict.radius)
+        end
+
+        total_size_dict = Dict{String,Int}()
+        distances_dict = Dict{String,Vector{Float32}}()
+        specificity_dict = Dict{String,Vector{Int32}}()
+        files = open_milk_files(ids_path,"w")
+        for (id,members) in groups
+            X_members = stack(Float64.(previous_dict[member]) for member in members) # m x members
+            member_sizes = [previous_size_dict[member] for member in members]
+            size = sum(member_sizes)
+            centroid = X_members*member_sizes/size
+            d = [sqrt(sum(abs2,X_members[:,k] .- centroid)) for k in eachindex(members)] # member centroid to node centroid
+            spread = sum(member_sizes .* ([previous_spread_dict[member] for member in members] .+ d.^2))/size
+            radius = maximum(d .+ [previous_radius_dict[member] for member in members])
+
+            println(files.ids,id)
+            write(files.bin,Float32.(centroid))
+            # id, size, spread, radius, stage, n_cached; existing nodes keep their stage
+            println(files.group,join([id,size,spread,radius,get(node_stage_dict,id,stage),0],'\t'))
+
+            total_size_dict[id] = size
+            distances_dict[id] = Float32.(d)
+            specificity_dict[id] = Int32[] # not recomputed (stratification only)
+        end
+        close_milk_files(files)
+
+        write_group_results(
+            path=jsonl_path(ids_path),
+            label=replace(basename(ids_path),r"\.ids$" => ""),
+            stage="tree_level",
+            n_cached=0,
+            n_input_objects=sum(values(total_size_dict)),
+            n_groups=length(groups),
+            groups=groups,
+            direct_groupsize_dict=nothing, # unused by write_group_results (computed from the group)
+            total_groupsize_dict=total_size_dict,
+            distances_dict=distances_dict,
+            specificity_dict=specificity_dict,
+            threshold=threshold,
+            n_comparisons=0
+        )
     end
 end

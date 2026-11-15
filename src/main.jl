@@ -1,4 +1,3 @@
-# function main()
 function main()
     logger = ConsoleLogger(stdout,Logging.Info)
     global_logger(logger)
@@ -31,6 +30,56 @@ function main()
         conversion_time = round(time()-conversion_start,digits=2)
         if args["convert-input-only"]
             @info "Conversion complete (--convert-input-only): $(milk_input_path)"
+            return
+        end
+
+        #= Placement
+        The input (query) objects are placed onto the reference tree in --reference-dir; the updated tree goes to --output-dir
+        =#
+        if !isnothing(args["reference-dir"])
+            @info "Using $(nworkers()) worker(s) for distributed processing"
+            log_args(args)
+            reference_dir = abspath(args["reference-dir"])
+            output_dir = abspath(args["output-dir"])
+            query_label = replace(basename(milk_input_path),r"\.ids$" => "")
+
+            reference_leaves_pathlist = sort(glob("$(label).leaves.*.ids",reference_dir))
+            if isempty(reference_leaves_pathlist)
+                error("No leaves ($(label).leaves.*.ids) in $(reference_dir); is it a MILK output directory for label '$(label)'?")
+            end
+            if isfile(leaves_path(reference_dir,label,query_label))
+                error("'$(query_label)' is already placed in $(reference_dir); rename the query file.")
+            end
+            if isdir(output_dir)
+                if args["force-overwrite"]
+                    @warn "Output directory already exists! Overwriting."
+                    rm(output_dir,recursive=true)
+                else
+                    error("Output directory ($(output_dir)) already exists! Exiting.")
+                end
+            end
+            mkpath(output_dir)
+
+            placement_start = time()
+            placement(reference_dir,output_dir,label,milk_input_path,reference_leaves_pathlist;query_label=query_label,seed=args["seed"],partition_size=args["partition-size"])
+            # leaves of the updated tree: the reference's leaves and the query (so it can be the next reference)
+            for reference_leaves_path in reference_leaves_pathlist
+                symlink_milk_files(reference_leaves_path,joinpath(output_dir,basename(reference_leaves_path)))
+            end
+            symlink_milk_files(milk_input_path,leaves_path(output_dir,label,query_label))
+            placement_time = round(time()-placement_start,digits=2)
+
+            reconstruction_start = time()
+            if args["skip-reconstruction"]
+                @info "Skipping cell hierarchy reconstruction."
+            else
+                @info "Reconstructing hierarchical graph..."
+                hierarchical_reconstruction(output_dir)
+            end
+            reconstruction_time = round(time()-reconstruction_start,digits=2)
+            @info "Runtime (seconds): conversion $conversion_time; placement $placement_time; reconstruction $reconstruction_time; total $(round(conversion_time+placement_time+reconstruction_time,digits=2))"
+            @info "\tDone!"
+            flush(stdout)
             return
         end
     
@@ -137,19 +186,13 @@ function main()
         @info "\nCompleted recursive downsampling procedure."
         flush(stdout)
 
-        final_cleanup(milk_output_dir)
+        final_cleanup(milk_output_dir;keep_representatives=args["keep-intermediate-files"])
         recursion_time = round(time()-recursion_start,digits=2)
 
+        # leaves: the input objects of iteration 0 (placement onto this tree reads them)
+        symlink_milk_files(milk_input_path,leaves_path(output_dir,label,replace(basename(milk_input_path),r"\.ids$" => "")))
         if !isnothing(stages_path)
-            @info "Writing backbone (final) iterations to $(output_dir)"
-            groups_pathlist = sort(glob("$(label).iteration_*.groups.jsonl.gz",milk_output_dir))
-            previous_ids_paths = [milk_input_path] # members of iteration 0 are the stage input cells
-            for (i,groups_path) in enumerate(groups_pathlist)
-                ids_path = final_iteration_path(output_dir,label,i-1)
-                write_final_iteration(previous_ids_paths,groups_path,ids_path,initial_stage)
-                previous_ids_paths = [ids_path]
-            end
-            place_stages(stages_path,output_dir,label;chunk_size=args["partition-size"])
+            error("Incremental MILK is being rewritten on top of placement; stages after $(initial_stage) are not placed yet.")
         end
 
         reconstruction_start = time()

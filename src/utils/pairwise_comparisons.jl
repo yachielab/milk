@@ -162,7 +162,8 @@ module PairwiseComparisons
         p = invariant_args["percentile"]
         linkage = invariant_args["linkage"]
         size_weighted = invariant_args["size-weighted"]
-        data_dict,groupsize_dict = load_milk_binaries(input_path)
+        data_dict,info_dict = load_milk_binaries(input_path)
+        groupsize_dict = info_dict.size
         if length(data_dict) < 2
             return nothing
         end

@@ -12,7 +12,7 @@ module Partitioning
     using ..FileHandling: binary_path,cache_meta_path,rm_milk_files,count_rows,
                           open_file_limit,read_binary_rows,open_milk_files,close_milk_files
 
-    export partition_input_file
+    export partition_input_file,generalized_kmeans
 
     # k-means distances: squared Euclidean gives the same nearest centroid as Euclidean and is cheaper
     const METRIC = Dict(
@@ -320,7 +320,7 @@ module Partitioning
             cached_binaries = Vector{Vector{Float32}}(undef,n_batch)
             if cache_flag
                 for j in 1:n_batch
-                    n_object_rows[j] = parse(Int,split(groups[j],'\t')[4])
+                    n_object_rows[j] = parse(Int,split(groups[j],'\t')[6]) # id, size, spread, radius, stage, n_cached
                     cached_metadata[j] = [readline(inputs.cache_meta) for _ in 1:n_object_rows[j]]
                     cached_binaries[j] = read!(inputs.cache_bin,Vector{Float32}(undef,m*n_object_rows[j]))
                 end
@@ -350,7 +350,7 @@ module Partitioning
     end
 
     function partition_file!(partition_counter,ids_path,partition_dir,label,invariant_args,rng;
-                             per_centroid_coverage=100,n_reserved_files=64,oversized_tolerance=1.25,
+                             per_centroid_coverage=100,n_reserved_files=64,oversized_tolerance=1.05,
                              min_shrinkage_factor=0.95,threshold_dir=nothing)
         start_time = time()
         partition_size = invariant_args["partition-size"]
