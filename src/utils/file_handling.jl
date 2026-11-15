@@ -602,7 +602,7 @@ module FileHandling
 
         write_group_results(
             path=jsonl_path(ids_path),
-            label=replace(basename(ids_path),r"\.ids$" => ""),
+            label=replace(basename(ids_path),r"(\.tmp)?\.ids$" => ""),
             stage="tree_level",
             n_cached=0,
             n_input_objects=sum(values(total_size_dict)),

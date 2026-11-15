@@ -50,6 +50,11 @@ function main()
             if isfile(leaves_path(reference_dir,label,query_label))
                 error("'$(query_label)' is already placed in $(reference_dir); rename the query file.")
             end
+            reference_leaf_ids = Set(reduce(vcat,[readlines(path) for path in reference_leaves_pathlist]))
+            overlap = count(in(reference_leaf_ids),readlines(milk_input_path))
+            if overlap > 0
+                error("$(overlap) query ids are already leaves of the reference")
+            end
             if isdir(output_dir)
                 if args["force-overwrite"]
                     @warn "Output directory already exists! Overwriting."

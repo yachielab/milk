@@ -90,14 +90,14 @@ module GroupAggregation
 
         D,index_map,_,n_comparisons = compute_pairwise_distance_matrix(concat_representatives_dict,percentile,distance_function,false;cache_dict=input_cache_dict)
         if linkage == "ward"
-            optimized_dict,optimized_groups,distances_dict,_ = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile)
+            optimized_dict,optimized_groups,distances_dict,threshold = ward_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile)
             specificity_dict = Dict(id => Int32[] for id in keys(optimized_groups))
             optimized_spread_dict = nothing
         elseif linkage == "average"
             concat_spread_dict = load_group_spreads(concat_representatives_path)
-            optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,_ = average_stratification(concat_representatives_dict,concat_groupsize_dict,concat_spread_dict,D,index_map,threshold,percentile)
+            optimized_dict,optimized_groups,distances_dict,optimized_spread_dict,threshold = average_stratification(concat_representatives_dict,concat_groupsize_dict,concat_spread_dict,D,index_map,threshold,percentile)
         else
-            optimized_dict,optimized_groups,distances_dict,specificity_dict,_ = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile;radius_dict=concat_groups_info["radius"],size_weighted=size_weighted)
+            optimized_dict,optimized_groups,distances_dict,specificity_dict,threshold = medoid_stratification(concat_representatives_dict,concat_groupsize_dict,D,index_map,threshold,percentile;radius_dict=concat_groups_info["radius"],size_weighted=size_weighted)
             optimized_spread_dict = nothing
         end
         

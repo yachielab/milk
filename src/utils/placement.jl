@@ -328,6 +328,10 @@ module Placement
     function placement(reference_dir,output_dir,label,query_ids_path,reference_leaves_pathlist;query_label="query",stage=0,seed=0,partition_size=10000)
         reference_pathlist = get_reference_pathlist(reference_dir,label)
         query_ids,X_query = load_milk_binary_matrix(query_ids_path)
+        n_features = size(load_milk_binary_matrix(first(reference_leaves_pathlist))[2],1)
+        if size(X_query,1) != n_features
+            error("Query has $(size(X_query,1)) features; the reference has $(n_features)")
+        end
         mkpath(output_dir)
         rng = Xoshiro(seed)
 
